@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { planLandmark } from "./landmarks";
 import { roadPoint } from "./procedural";
 import { groundHeight } from "./world";
 
@@ -23,5 +24,17 @@ describe("groundHeight", () => {
   it("samples finite terrain heights on both sides of the road", () => {
     expect(Number.isFinite(groundHeight(875, -18))).toBe(true);
     expect(Number.isFinite(groundHeight(875, 18))).toBe(true);
+  });
+
+  it("keeps the riding surface intact while carving a river beneath a bridge", () => {
+    const bridge = Array.from({ length: 8 }, (_, slot) => planLandmark(slot))
+      .find((plan) => plan?.kind === "bridge");
+
+    expect(bridge?.kind).toBe("bridge");
+    if (!bridge || bridge.kind !== "bridge") return;
+
+    const roadY = roadPoint(bridge.center).y;
+    expect(groundHeight(bridge.center, 0)).toBeCloseTo(roadY, 8);
+    expect(groundHeight(bridge.center, 12)).toBeLessThan(roadY - bridge.gorgeDepth * 0.55);
   });
 });

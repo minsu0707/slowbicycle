@@ -1,4 +1,6 @@
 import * as THREE from "three";
+import { buildLandmarksIn } from "./landmark-scenery";
+import { landmarkTerrainCarve } from "./landmarks";
 import { mulberry32, roadColor, roadPoint, seededNoise, shoulderColor, terrainWave } from "./procedural";
 
 const CHUNK_LENGTH = 180;
@@ -34,7 +36,13 @@ function terrainHeight(distance: number, lateral: number): number {
   const point = center.clone().addScaledVector(side, lateral);
   const terrainBlend = THREE.MathUtils.smoothstep(absoluteLateral, SHOULDER_HALF_WIDTH, 15);
   const edgeDrop = -1.2 * THREE.MathUtils.clamp((absoluteLateral - SHOULDER_HALF_WIDTH) / 30.5, 0, 1);
-  return center.y + edgeDrop + terrainWave(point.x, point.z) * terrainBlend - 0.12;
+  const wave = terrainWave(point.x, point.z) * terrainBlend;
+  const landmark = landmarkTerrainCarve(distance, lateral);
+  return center.y + edgeDrop + wave * (1 - landmark.flatten) + landmark.heightDelta - 0.12;
+}
+
+function isLandmarkClearing(distance: number, lateral: number): boolean {
+  return landmarkTerrainCarve(distance, lateral).flatten > 0.045;
 }
 
 type PreloadJob = { kind: "near" | "far"; index: number };
@@ -286,6 +294,7 @@ export class EndlessWorld {
     chunk.add(this.makeStrip(start, SHOULDER_HALF_WIDTH, this.shoulderMaterial, -0.055, shoulderColor));
     chunk.add(this.makeStrip(start, ROAD_HALF_WIDTH, this.roadMaterial, 0, (distance) => roadColor(distance)));
     chunk.add(this.makeTerrain(start));
+    chunk.add(buildLandmarksIn(start, start + CHUNK_LENGTH, { quality: this.quality }));
     chunk.add(this.makeRoadDetails(start));
     chunk.add(this.makeProps(index, start));
     chunk.add(this.makeGroundDetail(index, start));
@@ -408,6 +417,7 @@ export class EndlessWorld {
       const sample = this.sample(s);
       const side = random() > 0.5 ? 1 : -1;
       const offset = side * (7 + random() * 36);
+      if (isLandmarkClearing(s, offset)) continue;
       const right = new THREE.Vector3(-sample.tangent.z, 0, sample.tangent.x).normalize();
       const position = sample.position.clone().addScaledVector(right, offset);
       position.y += terrainWave(position.x, position.z) - 0.05;
@@ -444,6 +454,7 @@ export class EndlessWorld {
       const side = random() > 0.5 ? 1 : -1;
       const right = new THREE.Vector3(-sample.tangent.z, 0, sample.tangent.x).normalize();
       const offset = side * (ROAD_HALF_WIDTH + 0.5 + random() * 3.5);
+      if (isLandmarkClearing(s, offset)) continue;
       const position = sample.position.clone().addScaledVector(right, offset);
       position.y += terrainWave(position.x, position.z) - 0.03;
 
@@ -478,7 +489,12 @@ export class EndlessWorld {
     for (let s = start + random() * 5; s < start + CHUNK_LENGTH - 3; s += gap) {
       const sample = this.sample(s);
       const right = new THREE.Vector3(-sample.tangent.z, 0, sample.tangent.x).normalize();
-      const position = sample.position.clone().addScaledVector(right, side * (ROAD_HALF_WIDTH + 1.15));
+      const offset = side * (ROAD_HALF_WIDTH + 1.15);
+      if (isLandmarkClearing(s, offset)) {
+        previous = null;
+        continue;
+      }
+      const position = sample.position.clone().addScaledVector(right, offset);
       position.y += terrainWave(position.x, position.z);
 
       const post = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.62, 0.06), FENCE_MATERIAL);
@@ -506,9 +522,11 @@ export class EndlessWorld {
     if (random() > 0.12) return group;
     const side = random() > 0.5 ? 1 : -1;
     const s = start + 20 + random() * (CHUNK_LENGTH - 40);
+    const offset = side * (ROAD_HALF_WIDTH + 1.6);
+    if (isLandmarkClearing(s, offset)) return group;
     const sample = this.sample(s);
     const right = new THREE.Vector3(-sample.tangent.z, 0, sample.tangent.x).normalize();
-    const position = sample.position.clone().addScaledVector(right, side * (ROAD_HALF_WIDTH + 1.6));
+    const position = sample.position.clone().addScaledVector(right, offset);
     position.y += terrainWave(position.x, position.z);
 
     const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.045, 2.6, 6), LAMP_POLE_MATERIAL);
