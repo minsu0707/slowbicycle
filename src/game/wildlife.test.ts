@@ -152,19 +152,19 @@ describe("speciesWeights", () => {
 describe("pickWeighted / pickSpecies", () => {
   it("distributes picks roughly in proportion to equal weights", () => {
     const random = mulberry32(123);
-    const counts: Record<SpeciesId, number> = { bird: 0, deer: 0, fox: 0, rabbit: 0 };
-    const weights = { bird: 1, deer: 1, fox: 1, rabbit: 1 };
-    const trials = 4000;
+    const counts: Record<SpeciesId, number> = { bird: 0, deer: 0, fox: 0, rabbit: 0, squirrel: 0, sheep: 0 };
+    const weights: Record<SpeciesId, number> = { bird: 1, deer: 1, fox: 1, rabbit: 1, squirrel: 1, sheep: 1 };
+    const trials = 6000;
     for (let i = 0; i < trials; i += 1) counts[pickWeighted(random, weights)] += 1;
     for (const count of Object.values(counts)) {
-      expect(count).toBeGreaterThan(trials * 0.2);
-      expect(count).toBeLessThan(trials * 0.3);
+      expect(count).toBeGreaterThan(trials * (1 / 6) * 0.8);
+      expect(count).toBeLessThan(trials * (1 / 6) * 1.2);
     }
   });
 
   it("still produces every species at full night, just biased toward dusk/night animals", () => {
     const random = mulberry32(456);
-    const counts: Record<SpeciesId, number> = { bird: 0, deer: 0, fox: 0, rabbit: 0 };
+    const counts: Record<SpeciesId, number> = { bird: 0, deer: 0, fox: 0, rabbit: 0, squirrel: 0, sheep: 0 };
     const trials = 3000;
     for (let i = 0; i < trials; i += 1) counts[pickSpecies(random, 1)] += 1;
     for (const count of Object.values(counts)) expect(count).toBeGreaterThan(0);

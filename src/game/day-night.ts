@@ -14,9 +14,13 @@ export interface AtmosphereState {
   exposure: number;
   sunElevation: number;
   sunAzimuth: number;
+  moonElevation: number;
+  moonAzimuth: number;
 }
 
-type Keyframe = Omit<AtmosphereState, "progress" | "sunElevation" | "sunAzimuth"> & { at: number };
+type Keyframe = Omit<AtmosphereState, "progress" | "sunElevation" | "sunAzimuth" | "moonElevation" | "moonAzimuth"> & {
+  at: number;
+};
 
 const KEYFRAMES: Keyframe[] = [
   { at: 0, background: 0xd69a72, fog: 0xc89572, skyTint: 0xeab08d, skyLight: 0xd7b5a3, groundLight: 0x3e4938, sunColor: 0xffb36d, sunIntensity: 0.8, ambientIntensity: 0.68, starOpacity: 0.12, exposure: 0.92 },
@@ -52,6 +56,10 @@ export function sampleAtmosphere(rideSeconds: number): AtmosphereState {
     exposure: mixNumber(lower.exposure, upper.exposure, mix),
     sunElevation: Math.sin(progress * Math.PI * 2),
     sunAzimuth: progress * Math.PI * 2 + 0.55,
+    // The moon rides the same great circle half a cycle behind the sun, so
+    // it climbs as the sun sets and sinks again by the time it rises.
+    moonElevation: Math.sin(progress * Math.PI * 2 + Math.PI),
+    moonAzimuth: progress * Math.PI * 2 + 0.55 + Math.PI,
   };
 }
 

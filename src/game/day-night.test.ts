@@ -19,4 +19,10 @@ describe("day-night atmosphere", () => {
     expect(night.ambientIntensity).toBeLessThan(day.ambientIntensity);
     expect(night.exposure).toBeLessThan(day.exposure);
   });
+
+  it("puts the moon opposite the sun, so it rises as the sun sets", () => {
+    const sample = sampleAtmosphere(180);
+    expect(sample.moonElevation).toBeCloseTo(-sample.sunElevation, 8);
+    expect(Math.cos(sample.moonAzimuth - sample.sunAzimuth)).toBeCloseTo(-1, 8);
+  });
 });

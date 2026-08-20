@@ -17,7 +17,14 @@ export function roadPoint(distance: number): THREE.Vector3 {
     Math.sin(distance * 0.0085) * 16 +
     Math.sin(distance * 0.0027 + 1.1) * 30 +
     Math.sin(distance * 0.0141 + 2.3) * 24 * cornerIntensity;
-  const y = Math.sin(distance * 0.0052 + 0.4) * 3.2 + Math.sin(distance * 0.00165) * 7;
+  // Same idea as `cornerIntensity` above, applied to elevation: a mid-frequency
+  // rolling-hill term layered on the slow base climb/descent, so the grade
+  // actually pitches up and down as you ride instead of drifting gently.
+  const hillIntensity = 0.55 + Math.sin(distance * 0.0007 + 2.4) * 0.45;
+  const y =
+    Math.sin(distance * 0.0052 + 0.4) * 3.2 +
+    Math.sin(distance * 0.00165) * 7 +
+    Math.sin(distance * 0.0195 + 0.7) * 5 * hillIntensity;
   return new THREE.Vector3(x, y, -distance);
 }
 

@@ -432,7 +432,7 @@ export class EndlessWorld {
   private makeProps(index: number, start: number): THREE.Group {
     const props = new THREE.Group();
     const random = mulberry32(index * 92821 + 91);
-    const count = this.quality === "high" ? 26 : 13;
+    const count = this.quality === "high" ? 40 : 18;
     for (let i = 0; i < count; i += 1) {
       const s = start + random() * CHUNK_LENGTH;
       const sample = this.sample(s);
@@ -454,8 +454,8 @@ export class EndlessWorld {
         // Trees cluster into loose little groves more often than they stand
         // alone — a couple of close companions read as "lush" far cheaper
         // than raising the base count everywhere.
-        if (this.quality === "high" && random() < 0.4) {
-          const companions = 1 + Math.floor(random() * 2);
+        if (this.quality === "high" && random() < 0.55) {
+          const companions = 1 + Math.floor(random() * 3);
           for (let c = 0; c < companions; c += 1) {
             const companionOffset = offset + (random() - 0.5) * 5;
             if (isLandmarkClearing(s, companionOffset)) continue;

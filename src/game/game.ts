@@ -38,6 +38,7 @@ export class SlowBicycleGame {
   private skyLight = new THREE.HemisphereLight(0xb9ccdb, 0x43503c, 1.25);
   private sun = new THREE.DirectionalLight(0xffdfaa, 2.15);
   private sunDisc?: THREE.Mesh;
+  private moonDisc?: THREE.Mesh;
   private loopStarted = false;
   private bestDistance = loadBestDistance();
   private cameraKick = 0;
@@ -97,6 +98,12 @@ export class SlowBicycleGame {
       new THREE.MeshBasicMaterial({ color: 0xffe2a1, fog: false }),
     );
     this.scene.add(this.sunDisc);
+
+    this.moonDisc = new THREE.Mesh(
+      new THREE.SphereGeometry(5, 16, 12),
+      new THREE.MeshBasicMaterial({ color: 0xe4e8f2, fog: false, transparent: true }),
+    );
+    this.scene.add(this.moonDisc);
   }
 
   private bindUI(): void {
@@ -279,6 +286,19 @@ export class SlowBicycleGame {
       );
       (this.sunDisc.material as THREE.MeshBasicMaterial).color.setHex(atmosphere.sunColor);
       this.sunDisc.visible = atmosphere.sunElevation > -0.035;
+    }
+    if (this.moonDisc) {
+      const discRadius = 240;
+      this.moonDisc.position.set(
+        this.bikePosition.x + Math.cos(atmosphere.moonAzimuth) * discRadius,
+        this.bikePosition.y + atmosphere.moonElevation * 185,
+        this.bikePosition.z + Math.sin(atmosphere.moonAzimuth) * discRadius,
+      );
+      // Fades in with the stars rather than snapping on at the elevation
+      // threshold, so it never appears as a stark white ball in daylight.
+      const material = this.moonDisc.material as THREE.MeshBasicMaterial;
+      material.opacity = THREE.MathUtils.clamp(atmosphere.starOpacity * 1.4, 0, 1);
+      this.moonDisc.visible = atmosphere.moonElevation > -0.035 && material.opacity > 0.02;
     }
   }
 

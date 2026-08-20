@@ -15,8 +15,8 @@ import type { EndlessWorld } from "./world";
 // and despawning an encounter never allocates or disposes GPU resources, only
 // Object3D wrapper objects.
 
-export type SpeciesId = "bird" | "deer" | "fox" | "rabbit";
-export type GroundSpeciesId = "deer" | "fox" | "rabbit";
+export type SpeciesId = "bird" | "deer" | "fox" | "rabbit" | "squirrel" | "sheep";
+export type GroundSpeciesId = "deer" | "fox" | "rabbit" | "squirrel" | "sheep";
 export type Quality = "low" | "high";
 
 export const SPAWN_INTERVAL_RANGE = { min: 10, max: 26 } as const;
@@ -72,7 +72,11 @@ export function spawnAheadOffset(random: () => number): number {
 }
 
 export function lifespanFor(species: SpeciesId, random: () => number): number {
-  return species === "bird" ? randomInRange(random, 10, 16) : randomInRange(random, 8, 14);
+  if (species === "bird") return randomInRange(random, 10, 16);
+  // Sheep graze rather than flee — worth keeping in view longer than a
+  // startled deer or a darting rabbit.
+  if (species === "sheep") return randomInRange(random, 11, 18);
+  return randomInRange(random, 8, 14);
 }
 
 export function pickSide(random: () => number): 1 | -1 {
@@ -91,6 +95,10 @@ export function speciesWeights(nightAmount: number): Record<SpeciesId, number> {
     rabbit: lerpNum(1, 0.5, n),
     deer: lerpNum(0.55, 1, n),
     fox: lerpNum(0.35, 1.1, n),
+    squirrel: lerpNum(0.85, 0.3, n),
+    // Pastured sheep are asleep by night, but never fully gone — some
+    // farms still show a dozing flock in the paddock after dark.
+    sheep: lerpNum(0.7, 0.12, n),
   };
 }
 
@@ -125,6 +133,8 @@ export function ambientFlockSize(random: () => number, quality: Quality): number
 export function groupSize(species: GroundSpeciesId, random: () => number): number {
   if (species === "deer") return random() < 0.35 ? 2 : 1;
   if (species === "rabbit") return 1 + Math.floor(random() * 3);
+  if (species === "squirrel") return random() < 0.25 ? 2 : 1;
+  if (species === "sheep") return 2 + Math.floor(random() * 3); // a small grazing flock
   return 1; // fox: solitary
 }
 
@@ -160,6 +170,19 @@ export function groundMotionParams(
     const lateralStart = side * (roadHalfWidth + randomInRange(random, 1.5, 5));
     const lateralEnd = clampOffRoad(lateralStart + side * randomInRange(random, -3, 3), roadHalfWidth, side);
     return { lateralStart, lateralEnd, alongDrift: randomInRange(random, 6, 14), lifespan };
+  }
+  if (species === "squirrel") {
+    // A short, quick dart along the shoulder — over almost before it's noticed.
+    const lateralStart = side * (roadHalfWidth + randomInRange(random, 0.5, 3));
+    const lateralEnd = clampOffRoad(lateralStart + side * randomInRange(random, -2, 2), roadHalfWidth, side);
+    return { lateralStart, lateralEnd, alongDrift: randomInRange(random, 3, 7), lifespan };
+  }
+  if (species === "sheep") {
+    // Barely drifts — a grazing flock ambles rather than travels, and never
+    // ventures toward the paved lane.
+    const lateralStart = side * (roadHalfWidth + randomInRange(random, 2, 8));
+    const lateralEnd = clampOffRoad(lateralStart + side * randomInRange(random, -1, 1), roadHalfWidth, side);
+    return { lateralStart, lateralEnd, alongDrift: randomInRange(random, 0.5, 2), lifespan };
   }
   const lateralStart = side * (roadHalfWidth + randomInRange(random, 1, 4));
   const lateralEnd = clampOffRoad(lateralStart + side * randomInRange(random, -1.5, 1.5), roadHalfWidth, side);
@@ -258,19 +281,23 @@ export interface QuadrupedPose {
   kneeBend: [number, number, number, number];
 }
 
-export function quadrupedPose(species: "deer" | "fox", phase: number): QuadrupedPose {
-  const amplitude = species === "fox" ? 0.48 : 0.34;
+export function quadrupedPose(species: "deer" | "fox" | "sheep", phase: number): QuadrupedPose {
+  const amplitude = species === "fox" ? 0.48 : species === "sheep" ? 0.22 : 0.34;
+  const bob = species === "fox" ? 0.018 : species === "sheep" ? 0.014 : 0.026;
+  const pitch = species === "fox" ? 0.035 : species === "sheep" ? 0.018 : 0.025;
+  const tailAmplitude = species === "fox" ? 0.24 : species === "sheep" ? 0.05 : 0.09;
+  const kneeAmplitude = species === "sheep" ? 0.26 : 0.42;
   const step = Math.sin(phase);
   const counter = Math.sin(phase + Math.PI);
   const liftA = Math.max(0, Math.sin(phase + Math.PI / 3));
   const liftB = Math.max(0, Math.sin(phase + Math.PI + Math.PI / 3));
   return {
-    bodyBob: Math.abs(step) * (species === "fox" ? 0.018 : 0.026),
-    bodyPitch: Math.sin(phase * 2) * (species === "fox" ? 0.035 : 0.025),
+    bodyBob: Math.abs(step) * bob,
+    bodyPitch: Math.sin(phase * 2) * pitch,
     headPitch: -Math.sin(phase * 2) * 0.04,
-    tailYaw: Math.sin(phase * 0.5) * (species === "fox" ? 0.24 : 0.09),
+    tailYaw: Math.sin(phase * 0.5) * tailAmplitude,
     legSwing: [step * amplitude, counter * amplitude, counter * amplitude, step * amplitude],
-    kneeBend: [liftA * 0.42, liftB * 0.42, liftB * 0.34, liftA * 0.34],
+    kneeBend: [liftA * kneeAmplitude, liftB * kneeAmplitude, liftB * kneeAmplitude * 0.8, liftA * kneeAmplitude * 0.8],
   };
 }
 
@@ -340,12 +367,33 @@ const RABBIT_EAR_GEOMETRY = new THREE.ConeGeometry(0.03, 0.22, 4);
 const RABBIT_TAIL_GEOMETRY = new THREE.IcosahedronGeometry(0.055, 0);
 const RABBIT_HAUNCH_GEOMETRY = new THREE.SphereGeometry(1, 7, 5);
 
+const SQUIRREL_MATERIAL = new THREE.MeshStandardMaterial({ color: 0x8a6a49, roughness: 1, flatShading: true });
+const SQUIRREL_LIGHT_MATERIAL = new THREE.MeshStandardMaterial({ color: 0xd8c6a8, roughness: 1, flatShading: true });
+const SQUIRREL_BODY_GEOMETRY = new THREE.IcosahedronGeometry(0.11, 0);
+const SQUIRREL_HEAD_GEOMETRY = new THREE.IcosahedronGeometry(0.07, 0);
+const SQUIRREL_EAR_GEOMETRY = new THREE.ConeGeometry(0.02, 0.05, 4);
+// The tail is the whole point of a squirrel silhouette — big, and swept up
+// and forward over the back rather than trailing behind like every other
+// species here.
+const SQUIRREL_TAIL_GEOMETRY = new THREE.IcosahedronGeometry(0.1, 0);
+
+const SHEEP_WOOL_MATERIAL = new THREE.MeshStandardMaterial({ color: 0xe9e2d2, roughness: 1, flatShading: true });
+const SHEEP_DARK_MATERIAL = new THREE.MeshStandardMaterial({ color: 0x2c2620, roughness: 1, flatShading: true });
+const SHEEP_BODY_GEOMETRY = new THREE.IcosahedronGeometry(1, 1);
+const SHEEP_HEAD_GEOMETRY = new THREE.IcosahedronGeometry(1, 0);
+const SHEEP_EAR_GEOMETRY = new THREE.ConeGeometry(0.045, 0.1, 4);
+const SHEEP_UPPER_LEG_GEOMETRY = new THREE.CylinderGeometry(0.038, 0.045, 0.22, 5);
+const SHEEP_LOWER_LEG_GEOMETRY = new THREE.CylinderGeometry(0.03, 0.036, 0.16, 5);
+
 // Birds read as small dark silhouettes against the sky — unlit is both cheaper
-// and truer to how a distant flock actually looks.
-const BIRD_MATERIAL = new THREE.MeshBasicMaterial({ color: 0x2c2a26, fog: true });
-const BIRD_BODY_GEOMETRY = new THREE.SphereGeometry(1, 6, 4);
-const BIRD_BEAK_GEOMETRY = new THREE.ConeGeometry(0.03, 0.1, 5);
-const BIRD_TAIL_GEOMETRY = new THREE.ConeGeometry(0.055, 0.18, 4);
+// and truer to how a distant flock actually looks. Double-sided: the wing and
+// tail are thin, flat, single-sided planes, and a chase camera can end up
+// looking at either face as a flock wheels overhead — front-face culling made
+// wings vanish depending on viewing angle, which is what actually read as
+// "broken" rather than the shape itself.
+const BIRD_MATERIAL = new THREE.MeshBasicMaterial({ color: 0x201f1c, fog: true, side: THREE.DoubleSide });
+const BIRD_BODY_GEOMETRY = new THREE.SphereGeometry(1, 8, 6);
+const BIRD_BEAK_GEOMETRY = new THREE.ConeGeometry(0.028, 0.09, 6);
 // A tapered, swept quad rather than a three-point sliver — root wide against
 // the body, tip pulled forward into a point — so the silhouette actually
 // reads as a wing instead of a flat blade once the bird is big enough to
@@ -356,6 +404,16 @@ BIRD_WING_GEOMETRY.setAttribute("position", new THREE.Float32BufferAttribute([
 ], 3));
 BIRD_WING_GEOMETRY.setIndex([0, 1, 2, 0, 2, 3]);
 BIRD_WING_GEOMETRY.computeVertexNormals();
+// A flat triangular fan, authored directly in the bird's own XZ plane and
+// already pointing tailward (+Z) — no rotated-cone trick, which previously
+// scaled the cone's own length down to a stubby round nub instead of
+// flattening it into a fan.
+const BIRD_TAIL_GEOMETRY = new THREE.BufferGeometry();
+BIRD_TAIL_GEOMETRY.setAttribute("position", new THREE.Float32BufferAttribute([
+  0, 0, 0, -0.075, 0, 0.16, 0.075, 0, 0.16,
+], 3));
+BIRD_TAIL_GEOMETRY.setIndex([0, 1, 2]);
+BIRD_TAIL_GEOMETRY.computeVertexNormals();
 
 // Quadruped leg order shared by deer/fox: [front-left, front-right, back-left, back-right].
 const QUAD_LEG_OFFSETS: Array<[number, number]> = [
@@ -493,9 +551,58 @@ function buildRabbit(random: () => number): GroundBuild {
   return { root, legs: [], isHopper: true, body, head, tail };
 }
 
+function buildSquirrel(random: () => number): GroundBuild {
+  const root = new THREE.Group();
+  root.scale.setScalar(0.65 + random() * 0.3);
+  const body = new THREE.Mesh(SQUIRREL_BODY_GEOMETRY, SQUIRREL_MATERIAL);
+  body.scale.set(0.85, 0.85, 1.15);
+  body.position.y = 0.12;
+  const head = new THREE.Mesh(SQUIRREL_HEAD_GEOMETRY, SQUIRREL_LIGHT_MATERIAL);
+  head.position.set(0, 0.2, -0.11);
+  const tail = new THREE.Mesh(SQUIRREL_TAIL_GEOMETRY, SQUIRREL_MATERIAL);
+  tail.scale.set(0.9, 1.5, 0.65);
+  tail.position.set(0, 0.32, 0.14);
+  tail.rotation.x = -0.55;
+  root.add(body, head, tail);
+  for (const side of [-1, 1]) {
+    const ear = new THREE.Mesh(SQUIRREL_EAR_GEOMETRY, SQUIRREL_MATERIAL);
+    ear.position.set(side * 0.035, 0.27, -0.11);
+    head.add(ear);
+  }
+  return { root, legs: [], isHopper: true, body, head, tail };
+}
+
+function buildSheep(random: () => number): GroundBuild {
+  const root = new THREE.Group();
+  root.scale.setScalar(0.85 + random() * 0.3);
+  const torso = new THREE.Mesh(SHEEP_BODY_GEOMETRY, SHEEP_WOOL_MATERIAL);
+  torso.scale.set(0.24, 0.24, 0.36);
+  torso.position.set(0, 0.42, 0);
+  const head = new THREE.Mesh(SHEEP_HEAD_GEOMETRY, SHEEP_DARK_MATERIAL);
+  head.scale.set(0.12, 0.12, 0.15);
+  head.position.set(0, 0.44, -0.34);
+  const tail = new THREE.Group();
+  const tailMesh = new THREE.Mesh(SHEEP_HEAD_GEOMETRY, SHEEP_WOOL_MATERIAL);
+  tailMesh.scale.set(0.07, 0.07, 0.09);
+  tail.add(tailMesh);
+  tail.position.set(0, 0.44, 0.34);
+  root.add(torso, head, tail);
+  for (const side of [-1, 1]) {
+    const ear = new THREE.Mesh(SHEEP_EAR_GEOMETRY, SHEEP_DARK_MATERIAL);
+    ear.position.set(side * 0.09, 0.02, -0.02);
+    ear.rotation.z = side * 0.9;
+    head.add(ear);
+  }
+  const legs = buildQuadLegs(SHEEP_UPPER_LEG_GEOMETRY, SHEEP_LOWER_LEG_GEOMETRY, SHEEP_DARK_MATERIAL, 0.24, 0.22, 0.16);
+  legs.forEach((leg) => root.add(leg.hip));
+  return { root, legs, isHopper: false, body: torso, head, tail };
+}
+
 function buildGroundAnimal(species: GroundSpeciesId, random: () => number): GroundBuild {
   if (species === "deer") return buildDeer(random);
   if (species === "fox") return buildFox(random);
+  if (species === "squirrel") return buildSquirrel(random);
+  if (species === "sheep") return buildSheep(random);
   return buildRabbit(random);
 }
 
@@ -524,10 +631,10 @@ function buildBird(random: () => number): BirdBuild {
   beak.position.z = -0.085;
   root.add(beak);
 
+  // Already authored flat and tail-pointing in its own geometry — no
+  // rotation needed, unlike the wings, which pivot to flap.
   const tail = new THREE.Mesh(BIRD_TAIL_GEOMETRY, BIRD_MATERIAL);
-  tail.rotation.x = Math.PI / 2;
-  tail.scale.set(1, 0.24, 1);
-  tail.position.z = 0.1;
+  tail.position.z = 0.09;
   root.add(tail);
 
   const wingL = new THREE.Group();
@@ -798,9 +905,14 @@ export class WildlifeDirector {
         previous,
         yaw: 0,
         gaitPhase: this.random() * Math.PI * 2,
-        gaitSpeed: species === "fox" ? 9 + this.random() * 3 : 6 + this.random() * 2,
+        gaitSpeed:
+          species === "fox" || species === "squirrel"
+            ? 9 + this.random() * 3
+            : species === "sheep"
+              ? 3.5 + this.random() * 1.5
+              : 6 + this.random() * 2,
         alongJitter,
-        lateralWobble: 0.3 + this.random() * 0.4,
+        lateralWobble: species === "sheep" ? 0.15 + this.random() * 0.2 : 0.3 + this.random() * 0.4,
         phaseOffset: this.random() * Math.PI * 2,
         // Staggered so a group doesn't notice the rider and bolt in
         // perfect lockstep — each animal gets its own beat before it moves.
@@ -890,13 +1002,15 @@ export class WildlifeDirector {
       animal.yaw = dampAngle(animal.yaw, computeFacingYaw(dx, dz, animal.yaw), 9, dt);
       animal.previous.copy(this.scratch);
 
-      if (encounter.kind === "rabbit") {
+      if (animal.isHopper) {
+        // Both rabbit and squirrel hop; only their build (ears, tail, scale)
+        // differs, so they share this animation curve.
         const pose = rabbitPose(animal.gaitPhase);
         animal.root.position.set(this.scratch.x, this.scratch.y + pose.lift, this.scratch.z);
         animal.body.rotation.x = animal.bodyRestPitch + pose.bodyPitch;
         animal.head.rotation.x = animal.headRestPitch + pose.headPitch;
       } else {
-        const pose = quadrupedPose(encounter.kind, animal.gaitPhase);
+        const pose = quadrupedPose(encounter.kind as "deer" | "fox" | "sheep", animal.gaitPhase);
         animal.root.position.set(this.scratch.x, this.scratch.y, this.scratch.z);
         animal.body.position.y = animal.bodyRestY + pose.bodyBob;
         animal.body.rotation.x = animal.bodyRestPitch + pose.bodyPitch;
