@@ -2,6 +2,7 @@ import * as THREE from "three";
 
 const INK = new THREE.MeshStandardMaterial({ color: 0x18221f, roughness: 0.48, metalness: 0.35 });
 const FRAME = new THREE.MeshStandardMaterial({ color: 0xc55d3f, roughness: 0.42, metalness: 0.28 });
+const METAL = new THREE.MeshStandardMaterial({ color: 0xb8bcb8, roughness: 0.3, metalness: 0.82 });
 
 export class Bicycle {
   readonly group = new THREE.Group();
@@ -65,6 +66,14 @@ export class Bicycle {
     rightPedal.position.set(0.22, -0.25, 0);
     this.pedals.add(axle, chainring, leftArm, rightArm, leftPedal, rightPedal);
     this.group.add(this.pedals);
+    const cassette = new THREE.Mesh(new THREE.TorusGeometry(0.12, 0.012, 5, 24), METAL);
+    cassette.rotation.y = Math.PI / 2;
+    cassette.position.set(0.13, 0.72, 1.05);
+    this.group.add(
+      cassette,
+      tube(new THREE.Vector3(0.13, 1.01, 0.03), new THREE.Vector3(0.13, 0.83, 1.05), 0.009, METAL),
+      tube(new THREE.Vector3(0.13, 0.67, 0.04), new THREE.Vector3(0.13, 0.61, 1.05), 0.009, METAL),
+    );
 
     this.group.scale.setScalar(0.86);
   }
@@ -74,10 +83,16 @@ export class Bicycle {
     const tire = new THREE.Mesh(new THREE.TorusGeometry(radius, 0.027, 8, 48), INK);
     tire.rotation.y = Math.PI / 2;
     holder.add(tire);
-    const rimMaterial = new THREE.MeshStandardMaterial({ color: 0xcfd3cc, metalness: 0.65, roughness: 0.3 });
+    const rimMaterial = METAL;
     const rim = new THREE.Mesh(new THREE.TorusGeometry(radius * 0.94, 0.012, 5, 48), rimMaterial);
     rim.rotation.y = Math.PI / 2;
     holder.add(rim);
+    const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.24, 10), METAL);
+    hub.rotation.z = Math.PI / 2;
+    const rotor = new THREE.Mesh(new THREE.TorusGeometry(radius * 0.18, 0.012, 5, 24), METAL);
+    rotor.rotation.y = Math.PI / 2;
+    rotor.position.x = -0.075;
+    holder.add(hub, rotor);
     for (let i = 0; i < 10; i += 1) {
       const angle = (i / 10) * Math.PI * 2;
       const spoke = tube(
