@@ -1,0 +1,26 @@
+@import url("https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400&family=Gowun+Batang:wght@400;700&display=swap");
+
+:root {
+  font-family: "DM Mono", monospace;
+  color: #fffaf0;
+  background: #19211e;
+  font-synthesis: none;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #app { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+
+button, input, select { font: inherit; }
+
+.boot {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-content: center;
+  text-align: center;
+  background: radial-gradient(circle at 50% 35%, #e2b273, #5a796b 48%, #17201d 100%);
+}
+
+.boot h1 { font: 700 clamp(3rem, 9vw, 8rem)/0.9 "Gowun Batang", serif; margin: 1rem; }
+.eyebrow { letter-spacing: .3em; font-size: .72rem; }
