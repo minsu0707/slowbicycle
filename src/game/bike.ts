@@ -6,6 +6,7 @@ const METAL = new THREE.MeshStandardMaterial({ color: 0xb8bcb8, roughness: 0.3, 
 
 export class Bicycle {
   readonly group = new THREE.Group();
+  private readonly worldWheelRadius = 0.98 * 0.86;
   private wheels: THREE.Group[] = [];
   private pedals = new THREE.Group();
   private crankAngle = 0;
@@ -18,7 +19,8 @@ export class Bicycle {
 
   update(speed: number, lean: number, dt: number, pedaling: boolean, pedalStroke: boolean): void {
     this.group.rotation.z = lean;
-    for (const wheel of this.wheels) wheel.rotation.x -= speed * 0.032;
+    const wheelRotation = (speed * dt) / this.worldWheelRadius;
+    for (const wheel of this.wheels) wheel.rotation.x -= wheelRotation;
     if (pedalStroke) this.crankTarget += Math.PI;
     if (pedaling && !pedalStroke) this.crankTarget += dt * (2.2 + speed * 0.38);
     this.crankAngle += (this.crankTarget - this.crankAngle) * (1 - Math.exp(-15 * dt));
@@ -46,7 +48,8 @@ export class Bicycle {
       tube(joints.frontTop, joints.crank, 0.05, FRAME),
       tube(joints.crank, joints.rearHub, 0.038, FRAME),
       tube(joints.seat, joints.rearHub, 0.034, FRAME),
-      tube(joints.frontTop, joints.frontHub, 0.042, INK),
+      tube(joints.frontTop.clone().setX(-0.075), joints.frontHub.clone().setX(-0.105), 0.025, INK),
+      tube(joints.frontTop.clone().setX(0.075), joints.frontHub.clone().setX(0.105), 0.025, INK),
     );
 
     const seat = new THREE.Mesh(new THREE.BoxGeometry(0.27, 0.065, 0.22), INK);
@@ -75,7 +78,15 @@ export class Bicycle {
       tube(new THREE.Vector3(0.13, 0.67, 0.04), new THREE.Vector3(0.13, 0.61, 1.05), 0.009, METAL),
     );
 
+    const derailleur = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.2, 0.06), INK);
+    derailleur.position.set(0.15, 0.48, 0.98);
+    derailleur.rotation.x = -0.28;
+    this.group.add(derailleur);
+
     this.group.scale.setScalar(0.86);
+    this.group.traverse((object) => {
+      if (object instanceof THREE.Mesh) object.castShadow = true;
+    });
   }
 
   private makeWheel(radius: number): THREE.Group {
@@ -113,6 +124,9 @@ export class Bicycle {
       tube(center, new THREE.Vector3(0, 1.67, -0.72), 0.022, INK),
     );
     for (const side of [-1, 1]) {
+      const hood = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.15, 0.09), INK);
+      hood.position.set(side * 0.32, 1.69, -0.89);
+      hood.rotation.x = -0.28;
       this.group.add(
         tube(
           new THREE.Vector3(side * 0.34, 1.67, -0.82),
@@ -126,6 +140,7 @@ export class Bicycle {
           0.018,
           INK,
         ),
+        hood,
       );
     }
   }

@@ -3,6 +3,7 @@ import { RideAudio } from "./audio";
 import { Bicycle } from "./bike";
 import { InputController } from "./input";
 import { DEFAULT_BIKE_STATE, damp, speedKmh, stepBike, type BikeState } from "./physics";
+import { loadBestDistance, saveBestDistance } from "./storage";
 import { GameUI, type Settings } from "./ui";
 import { EndlessWorld } from "./world";
 
@@ -24,18 +25,26 @@ export class SlowBicycleGame {
   private elapsed = 0;
   private milestone = 1;
   private shadowTarget = new THREE.Object3D();
+  private sun = new THREE.DirectionalLight(0xffdfaa, 2.15);
+  private sunDisc?: THREE.Mesh;
   private loopStarted = false;
   private bestDistance = loadBestDistance();
   private cameraKick = 0;
+  private readonly roadRight = new THREE.Vector3();
+  private readonly bikePosition = new THREE.Vector3();
+  private readonly desiredCamera = new THREE.Vector3();
+  private readonly lookAhead = new THREE.Vector3();
+  private readonly sunOffset = new THREE.Vector3(-38, 62, 24);
+  private readonly sunDiscOffset = new THREE.Vector3(-82, 55, -220);
 
   constructor(container: HTMLElement) {
     this.ui = new GameUI(container);
     this.settings = this.ui.getSettings();
     const canvas = document.querySelector<HTMLCanvasElement>("#scene");
     if (!canvas) throw new Error("Canvas not found");
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.25));
-    this.renderer.shadowMap.enabled = false;
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: "high-performance" });
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+    this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -55,26 +64,25 @@ export class SlowBicycleGame {
   }
 
   private setupLights(): void {
-    const hemisphere = new THREE.HemisphereLight(0xf5d6a2, 0x365145, 2.2);
-    const sun = new THREE.DirectionalLight(0xffe8bd, 3.3);
-    sun.position.set(-38, 62, 24);
-    sun.castShadow = false;
-    sun.shadow.mapSize.set(512, 512);
-    sun.shadow.camera.left = -34;
-    sun.shadow.camera.right = 34;
-    sun.shadow.camera.top = 34;
-    sun.shadow.camera.bottom = -34;
-    sun.shadow.camera.near = 1;
-    sun.shadow.camera.far = 140;
-    sun.target = this.shadowTarget;
-    this.scene.add(hemisphere, sun, this.shadowTarget);
+    const hemisphere = new THREE.HemisphereLight(0xb9ccdb, 0x43503c, 1.25);
+    this.sun.position.set(-38, 62, 24);
+    this.sun.castShadow = true;
+    this.sun.shadow.mapSize.set(1024, 1024);
+    this.sun.shadow.camera.left = -20;
+    this.sun.shadow.camera.right = 20;
+    this.sun.shadow.camera.top = 20;
+    this.sun.shadow.camera.bottom = -20;
+    this.sun.shadow.camera.near = 1;
+    this.sun.shadow.camera.far = 110;
+    this.sun.shadow.bias = -0.0002;
+    this.sun.target = this.shadowTarget;
+    this.scene.add(hemisphere, this.sun, this.shadowTarget);
 
-    const sunDisc = new THREE.Mesh(
+    this.sunDisc = new THREE.Mesh(
       new THREE.SphereGeometry(7, 18, 12),
       new THREE.MeshBasicMaterial({ color: 0xffe2a1, fog: false }),
     );
-    sunDisc.position.set(-82, 55, -220);
-    this.scene.add(sunDisc);
+    this.scene.add(this.sunDisc);
   }
 
   private bindUI(): void {
@@ -136,6 +144,10 @@ export class SlowBicycleGame {
   private applySettings(settings: Settings): void {
     this.settings = settings;
     this.world?.setQuality(settings.quality);
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio, settings.quality === "high" ? 1.5 : 1));
+    this.renderer.shadowMap.enabled = settings.quality === "high";
+    this.sun.castShadow = settings.quality === "high";
+    if (settings.sound && this.mode === "riding") this.audio.start();
     this.audio.setVolume(settings.sound ? settings.volume : 0);
   }
 
@@ -168,30 +180,32 @@ export class SlowBicycleGame {
 
   private updateScene(dt: number, elapsed: number): void {
     const road = this.world.sample(this.state.distance);
-    const right = new THREE.Vector3(-road.tangent.z, 0, road.tangent.x).normalize();
-    const bikePosition = road.position.clone().addScaledVector(right, this.state.lateral);
-    bikePosition.y += 0.07;
-    this.bicycle.group.position.copy(bikePosition);
+    this.roadRight.set(-road.tangent.z, 0, road.tangent.x).normalize();
+    this.bikePosition.copy(road.position).addScaledVector(this.roadRight, this.state.lateral);
+    this.bikePosition.y += 0.07;
+    this.bicycle.group.position.copy(this.bikePosition);
     this.bicycle.group.rotation.y = road.yaw + this.state.heading;
     this.bicycle.group.rotation.x = -Math.atan(road.slope);
 
     const speedRatio = Math.min(this.state.speed / 13, 1);
     const distance = 7.2 + speedRatio * 2.8 + this.cameraKick * 0.55;
     const height = 3.5 + speedRatio * 1.1 + this.cameraKick * 0.08;
-    const back = road.tangent.clone().multiplyScalar(-distance);
-    const desiredCamera = bikePosition.clone().add(back).add(new THREE.Vector3(0, height, 0));
+    this.desiredCamera.copy(road.tangent).multiplyScalar(-distance).add(this.bikePosition);
+    this.desiredCamera.y += height;
     if (!this.settings.reduceMotion && this.mode === "riding") {
-      desiredCamera.y += Math.sin(elapsed * (2.1 + this.state.speed * 0.16)) * 0.025 * speedRatio;
+      this.desiredCamera.y += Math.sin(elapsed * (2.1 + this.state.speed * 0.16)) * 0.025 * speedRatio;
     }
     const follow = dt === 0 ? 1 : 1 - Math.exp(-4.5 * dt);
-    this.camera.position.lerp(desiredCamera, follow);
-    const lookAhead = bikePosition.clone().addScaledVector(road.tangent, 10 + this.state.speed * 0.8);
-    lookAhead.y += 1.1;
-    this.camera.lookAt(lookAhead);
+    this.camera.position.lerp(this.desiredCamera, follow);
+    this.lookAhead.copy(this.bikePosition).addScaledVector(road.tangent, 10 + this.state.speed * 0.8);
+    this.lookAhead.y += 1.1;
+    this.camera.lookAt(this.lookAhead);
     const kickFov = this.settings.reduceMotion ? 0 : this.cameraKick * 2.8;
     this.camera.fov = damp(this.camera.fov, this.settings.reduceMotion ? 60 : 60 + speedRatio * 6 + kickFov, 7, dt || 0.016);
     this.camera.updateProjectionMatrix();
-    this.shadowTarget.position.copy(bikePosition);
+    this.shadowTarget.position.copy(this.bikePosition);
+    this.sun.position.copy(this.bikePosition).add(this.sunOffset);
+    this.sunDisc?.position.copy(this.bikePosition).add(this.sunDiscOffset);
   }
 
   private resize(): void {
@@ -203,16 +217,7 @@ export class SlowBicycleGame {
   }
 
   private saveProgress(): void {
-    localStorage.setItem("slowbicycle:progress", JSON.stringify({ bestDistanceMeters: this.bestDistance }));
+    saveBestDistance(this.bestDistance);
     this.ui.updateBest(this.bestDistance);
-  }
-}
-
-function loadBestDistance(): number {
-  try {
-    const progress = JSON.parse(localStorage.getItem("slowbicycle:progress") ?? "{}") as { bestDistanceMeters?: number };
-    return Number.isFinite(progress.bestDistanceMeters) ? progress.bestDistanceMeters ?? 0 : 0;
-  } catch {
-    return 0;
   }
 }

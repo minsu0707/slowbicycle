@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "check": "npm run test && npm run build",
+    "deploy:pages": "npm run build && wrangler pages deploy dist --project-name slowbicycle --branch master"
   },
   "dependencies": {
     "three": "^0.179.1"

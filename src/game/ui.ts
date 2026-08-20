@@ -1,11 +1,6 @@
-export interface Settings {
-  quality: "low" | "high";
-  reduceMotion: boolean;
-  sound: boolean;
-  volume: number;
-}
+import { loadSettings, saveSettings, type Settings } from "./storage";
 
-const DEFAULTS: Settings = { quality: "high", reduceMotion: false, sound: true, volume: 0.7 };
+export type { Settings } from "./storage";
 
 export class GameUI {
   readonly root: HTMLElement;
@@ -100,7 +95,7 @@ export class GameUI {
         sound: sound.checked,
         volume: Number(volume.value),
       };
-      localStorage.setItem("slowbicycle:settings", JSON.stringify(this.settings));
+      saveSettings(this.settings);
       for (const listener of this.settingsListeners) listener(this.getSettings());
     };
     quality.addEventListener("change", update);
@@ -116,26 +111,29 @@ export class GameUI {
   }
 }
 
-function loadSettings(): Settings {
-  try {
-    const stored = JSON.parse(localStorage.getItem("slowbicycle:settings") ?? "{}") as Partial<Settings>;
-    return { ...DEFAULTS, ...stored };
-  } catch {
-    return DEFAULTS;
-  }
-}
-
 function markup(settings: Settings): string {
   return `
     <canvas id="scene" aria-label="끝없이 이어지는 시골길 위의 자전거 주행 장면"></canvas>
     <section id="title-screen" class="overlay title-screen">
       <div class="title-mark">
-        <h1>slow bicycle</h1>
+        <div class="wordmark">
+          <svg class="wheel-mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+            <circle cx="16" cy="16" r="12.6" fill="none" stroke="currentColor" stroke-width="1.3" />
+            <circle cx="16" cy="16" r="1.5" fill="currentColor" />
+            <line x1="16" y1="16" x2="16" y2="3.8" stroke="currentColor" stroke-width="0.9" />
+            <line x1="16" y1="16" x2="24.7" y2="10.4" stroke="currentColor" stroke-width="0.9" />
+            <line x1="16" y1="16" x2="24.7" y2="21.6" stroke="currentColor" stroke-width="0.9" />
+            <line x1="16" y1="16" x2="16" y2="28.2" stroke="currentColor" stroke-width="0.9" />
+            <line x1="16" y1="16" x2="7.3" y2="21.6" stroke="currentColor" stroke-width="0.9" />
+            <line x1="16" y1="16" x2="7.3" y2="10.4" stroke="currentColor" stroke-width="0.9" />
+          </svg>
+          <h1>slow bicycle</h1>
+        </div>
         <p>endless cycling</p>
       </div>
       <button id="start-ride" class="start-button">begin</button>
       <div class="title-meta">
-        <p><span>pedal</span> w / ↑</p>
+        <p><span>pedal</span> space / w / ↑</p>
         <p><span>steer</span> a d / ← →</p>
         <p><span>brake</span> s / ↓</p>
       </div>

@@ -19,12 +19,12 @@ export class InputController {
       }
     });
     window.addEventListener("keyup", (event) => this.keys.delete(event.code));
-    window.addEventListener("blur", () => this.keys.clear());
+    window.addEventListener("blur", () => this.reset());
   }
 
   setEnabled(enabled: boolean): void {
     this.enabled = enabled;
-    if (!enabled) this.resetTouch();
+    if (!enabled) this.reset();
   }
 
   bindTouchButton(element: HTMLElement, action: keyof typeof this.touch): void {
@@ -55,7 +55,8 @@ export class InputController {
     return queued;
   }
 
-  private resetTouch(): void {
+  private reset(): void {
+    this.keys.clear();
     this.touch = { pedal: false, brake: false, left: false, right: false };
     this.pedalStrokeQueued = false;
     this.pedalBurst = 0;
