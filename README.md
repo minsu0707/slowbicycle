@@ -2,6 +2,8 @@
 
 `slowroads.io`의 끝없는 드라이빙 감성을 자전거의 페달링, 경사, 기울기로 재해석한 브라우저 라이딩 시뮬레이션입니다.
 
+라이브: [slowbicycle.pages.dev](https://slowbicycle.pages.dev/)
+
 ## 실행
 
 ```bash
