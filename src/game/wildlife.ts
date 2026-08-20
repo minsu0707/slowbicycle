@@ -16,7 +16,7 @@ import type { EndlessWorld } from "./world";
 // Object3D wrapper objects.
 
 export type SpeciesId = "bird" | "deer" | "fox" | "rabbit";
-type GroundSpeciesId = "deer" | "fox" | "rabbit";
+export type GroundSpeciesId = "deer" | "fox" | "rabbit";
 type Quality = "low" | "high";
 
 export const SPAWN_INTERVAL_RANGE = { min: 10, max: 26 } as const;
@@ -195,35 +195,111 @@ export function smoothEase(t: number): number {
   return clamped * clamped * (3 - 2 * clamped);
 }
 
+export function dampAngle(current: number, target: number, lambda: number, dt: number): number {
+  const delta = Math.atan2(Math.sin(target - current), Math.cos(target - current));
+  return current + delta * (1 - Math.exp(-lambda * Math.max(0, dt)));
+}
+
+export interface QuadrupedPose {
+  bodyBob: number;
+  bodyPitch: number;
+  headPitch: number;
+  tailYaw: number;
+  legSwing: [number, number, number, number];
+  kneeBend: [number, number, number, number];
+}
+
+export function quadrupedPose(species: "deer" | "fox", phase: number): QuadrupedPose {
+  const amplitude = species === "fox" ? 0.48 : 0.34;
+  const step = Math.sin(phase);
+  const counter = Math.sin(phase + Math.PI);
+  const liftA = Math.max(0, Math.sin(phase + Math.PI / 3));
+  const liftB = Math.max(0, Math.sin(phase + Math.PI + Math.PI / 3));
+  return {
+    bodyBob: Math.abs(step) * (species === "fox" ? 0.018 : 0.026),
+    bodyPitch: Math.sin(phase * 2) * (species === "fox" ? 0.035 : 0.025),
+    headPitch: -Math.sin(phase * 2) * 0.04,
+    tailYaw: Math.sin(phase * 0.5) * (species === "fox" ? 0.24 : 0.09),
+    legSwing: [step * amplitude, counter * amplitude, counter * amplitude, step * amplitude],
+    kneeBend: [liftA * 0.42, liftB * 0.42, liftB * 0.34, liftA * 0.34],
+  };
+}
+
+export interface RabbitPose {
+  lift: number;
+  bodyPitch: number;
+  headPitch: number;
+}
+
+export function rabbitPose(phase: number): RabbitPose {
+  const cycle = ((phase % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+  const airborne = Math.max(0, Math.sin(cycle));
+  return {
+    lift: airborne * airborne * 0.16,
+    bodyPitch: Math.sin(cycle) * 0.12 - Math.sin(cycle * 2) * 0.04,
+    headPitch: -Math.sin(cycle) * 0.08,
+  };
+}
+
+export interface BirdFlightPose {
+  wing: number;
+  lift: number;
+  bodyPitch: number;
+}
+
+export function birdFlightPose(phase: number, glidePhase: number): BirdFlightPose {
+  const glide = smoothEase((Math.sin(glidePhase) + 1) * 0.5);
+  const flapEnvelope = 0.28 + (1 - glide) * 0.72;
+  const stroke = Math.sin(phase) * flapEnvelope;
+  return {
+    wing: 0.12 + stroke * 0.82,
+    lift: Math.max(0, -stroke) * 0.09 + Math.sin(glidePhase * 0.7) * 0.035,
+    bodyPitch: -stroke * 0.035 + glide * 0.025,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Shared geometry/materials — module singletons, reused across every spawn.
 // ---------------------------------------------------------------------------
 
 const DEER_MATERIAL = new THREE.MeshStandardMaterial({ color: 0x7a5636, roughness: 1, flatShading: true });
-const DEER_TORSO_GEOMETRY = new THREE.BoxGeometry(0.34, 0.36, 0.72);
-const DEER_HEAD_GEOMETRY = new THREE.BoxGeometry(0.2, 0.22, 0.3);
+const DEER_LIGHT_MATERIAL = new THREE.MeshStandardMaterial({ color: 0xb89a70, roughness: 1, flatShading: true });
+const DEER_TORSO_GEOMETRY = new THREE.SphereGeometry(1, 8, 6);
+const DEER_HEAD_GEOMETRY = new THREE.SphereGeometry(1, 7, 5);
+const DEER_NECK_GEOMETRY = new THREE.CylinderGeometry(0.105, 0.16, 0.48, 6);
+const DEER_MUZZLE_GEOMETRY = new THREE.SphereGeometry(1, 6, 4);
 const DEER_EAR_GEOMETRY = new THREE.ConeGeometry(0.05, 0.16, 4);
 const DEER_TAIL_GEOMETRY = new THREE.ConeGeometry(0.05, 0.14, 5);
-const DEER_LEG_GEOMETRY = new THREE.CylinderGeometry(0.035, 0.045, 0.5, 5);
+const DEER_UPPER_LEG_GEOMETRY = new THREE.CylinderGeometry(0.04, 0.052, 0.3, 5);
+const DEER_LOWER_LEG_GEOMETRY = new THREE.CylinderGeometry(0.026, 0.035, 0.27, 5);
 
 const FOX_MATERIAL = new THREE.MeshStandardMaterial({ color: 0xb5592f, roughness: 1, flatShading: true });
-const FOX_TORSO_GEOMETRY = new THREE.BoxGeometry(0.2, 0.22, 0.48);
-const FOX_HEAD_GEOMETRY = new THREE.BoxGeometry(0.14, 0.14, 0.18);
+const FOX_DARK_MATERIAL = new THREE.MeshStandardMaterial({ color: 0x332720, roughness: 1, flatShading: true });
+const FOX_LIGHT_MATERIAL = new THREE.MeshStandardMaterial({ color: 0xd9c2a0, roughness: 1, flatShading: true });
+const FOX_TORSO_GEOMETRY = new THREE.SphereGeometry(1, 8, 6);
+const FOX_HEAD_GEOMETRY = new THREE.SphereGeometry(1, 7, 5);
+const FOX_MUZZLE_GEOMETRY = new THREE.ConeGeometry(0.075, 0.22, 5);
 const FOX_EAR_GEOMETRY = new THREE.ConeGeometry(0.045, 0.13, 4);
-const FOX_TAIL_GEOMETRY = new THREE.ConeGeometry(0.07, 0.42, 6);
-const FOX_LEG_GEOMETRY = new THREE.CylinderGeometry(0.022, 0.028, 0.26, 5);
+const FOX_TAIL_GEOMETRY = new THREE.SphereGeometry(1, 7, 5);
+const FOX_UPPER_LEG_GEOMETRY = new THREE.CylinderGeometry(0.025, 0.034, 0.16, 5);
+const FOX_LOWER_LEG_GEOMETRY = new THREE.CylinderGeometry(0.018, 0.024, 0.15, 5);
 
 const RABBIT_MATERIAL = new THREE.MeshStandardMaterial({ color: 0x8a7a63, roughness: 1, flatShading: true });
 const RABBIT_BODY_GEOMETRY = new THREE.IcosahedronGeometry(0.17, 0);
 const RABBIT_HEAD_GEOMETRY = new THREE.IcosahedronGeometry(0.1, 0);
 const RABBIT_EAR_GEOMETRY = new THREE.ConeGeometry(0.03, 0.22, 4);
 const RABBIT_TAIL_GEOMETRY = new THREE.IcosahedronGeometry(0.055, 0);
+const RABBIT_HAUNCH_GEOMETRY = new THREE.SphereGeometry(1, 7, 5);
 
 // Birds read as small dark silhouettes against the sky — unlit is both cheaper
 // and truer to how a distant flock actually looks.
 const BIRD_MATERIAL = new THREE.MeshBasicMaterial({ color: 0x2c2a26, fog: true });
-const BIRD_BODY_GEOMETRY = new THREE.ConeGeometry(0.045, 0.3, 4);
-const BIRD_WING_GEOMETRY = new THREE.BoxGeometry(0.4, 0.012, 0.12);
+const BIRD_BODY_GEOMETRY = new THREE.SphereGeometry(1, 6, 4);
+const BIRD_WING_GEOMETRY = new THREE.BufferGeometry();
+BIRD_WING_GEOMETRY.setAttribute("position", new THREE.Float32BufferAttribute([
+  0, 0, -0.04, -0.32, 0, 0.03, -0.12, 0, 0.13,
+], 3));
+BIRD_WING_GEOMETRY.computeVertexNormals();
 
 // Quadruped leg order shared by deer/fox: [front-left, front-right, back-left, back-right].
 const QUAD_LEG_OFFSETS: Array<[number, number]> = [
@@ -232,87 +308,133 @@ const QUAD_LEG_OFFSETS: Array<[number, number]> = [
   [-0.13, 0.28],
   [0.13, 0.28],
 ];
-// Diagonal trot: FL+BR share a phase, FR+BL share the other.
-const QUAD_LEG_PHASES = [0, Math.PI, Math.PI, 0];
+interface ArticulatedLeg {
+  hip: THREE.Group;
+  knee: THREE.Group;
+}
 
-function buildQuadLegs(geometry: THREE.BufferGeometry, material: THREE.Material, hipHeight: number, legLength: number): THREE.Group[] {
+function buildQuadLegs(
+  upperGeometry: THREE.BufferGeometry,
+  lowerGeometry: THREE.BufferGeometry,
+  material: THREE.Material,
+  hipHeight: number,
+  upperLength: number,
+  lowerLength: number,
+): ArticulatedLeg[] {
   return QUAD_LEG_OFFSETS.map(([x, z]) => {
     const hip = new THREE.Group();
     hip.position.set(x, hipHeight, z);
-    const leg = new THREE.Mesh(geometry, material);
-    leg.position.y = -legLength / 2;
-    hip.add(leg);
-    return hip;
+    const upper = new THREE.Mesh(upperGeometry, material);
+    upper.position.y = -upperLength / 2;
+    const knee = new THREE.Group();
+    knee.position.y = -upperLength;
+    const lower = new THREE.Mesh(lowerGeometry, material);
+    lower.position.y = -lowerLength / 2;
+    knee.add(lower);
+    hip.add(upper, knee);
+    return { hip, knee };
   });
 }
 
 interface GroundBuild {
   root: THREE.Group;
-  legs: THREE.Group[];
+  legs: ArticulatedLeg[];
   isHopper: boolean;
+  body: THREE.Object3D;
+  head: THREE.Object3D;
+  tail: THREE.Object3D;
 }
 
 function buildDeer(random: () => number): GroundBuild {
   const root = new THREE.Group();
   root.scale.setScalar(0.85 + random() * 0.3);
   const torso = new THREE.Mesh(DEER_TORSO_GEOMETRY, DEER_MATERIAL);
-  torso.position.set(0, 0.62, 0);
+  torso.scale.set(0.2, 0.25, 0.43);
+  torso.position.set(0, 0.64, 0.02);
+  const neck = new THREE.Mesh(DEER_NECK_GEOMETRY, DEER_MATERIAL);
+  neck.position.set(0, 0.83, -0.32);
+  neck.rotation.x = -0.42;
   const head = new THREE.Mesh(DEER_HEAD_GEOMETRY, DEER_MATERIAL);
-  head.position.set(0, 0.86, -0.5);
-  const tail = new THREE.Mesh(DEER_TAIL_GEOMETRY, DEER_MATERIAL);
-  tail.position.set(0, 0.7, 0.38);
+  head.scale.set(0.13, 0.15, 0.2);
+  head.position.set(0, 1.02, -0.48);
+  const muzzle = new THREE.Mesh(DEER_MUZZLE_GEOMETRY, DEER_LIGHT_MATERIAL);
+  muzzle.scale.set(0.09, 0.075, 0.14);
+  muzzle.position.set(0, -0.025, -0.16);
+  head.add(muzzle);
+  const tail = new THREE.Group();
+  const tailMesh = new THREE.Mesh(DEER_TAIL_GEOMETRY, DEER_LIGHT_MATERIAL);
+  tailMesh.rotation.x = 0.4;
+  tail.add(tailMesh);
+  tail.position.set(0, 0.7, 0.43);
   tail.rotation.x = 0.4;
-  root.add(torso, head, tail);
+  root.add(torso, neck, head, tail);
   for (const side of [-1, 1]) {
     const ear = new THREE.Mesh(DEER_EAR_GEOMETRY, DEER_MATERIAL);
-    ear.position.set(side * 0.08, 0.98, -0.56);
+    ear.position.set(side * 0.08, 0.16, -0.01);
     ear.rotation.z = side * 0.5;
-    root.add(ear);
+    head.add(ear);
   }
-  const legs = buildQuadLegs(DEER_LEG_GEOMETRY, DEER_MATERIAL, 0.62, 0.5);
-  legs.forEach((leg) => root.add(leg));
-  return { root, legs, isHopper: false };
+  const legs = buildQuadLegs(DEER_UPPER_LEG_GEOMETRY, DEER_LOWER_LEG_GEOMETRY, DEER_MATERIAL, 0.62, 0.3, 0.27);
+  legs.forEach((leg) => root.add(leg.hip));
+  return { root, legs, isHopper: false, body: torso, head, tail };
 }
 
 function buildFox(random: () => number): GroundBuild {
   const root = new THREE.Group();
   root.scale.setScalar(0.8 + random() * 0.3);
   const torso = new THREE.Mesh(FOX_TORSO_GEOMETRY, FOX_MATERIAL);
-  torso.position.set(0, 0.32, 0);
+  torso.scale.set(0.14, 0.14, 0.34);
+  torso.position.set(0, 0.34, 0.01);
   const head = new THREE.Mesh(FOX_HEAD_GEOMETRY, FOX_MATERIAL);
-  head.position.set(0, 0.4, -0.3);
-  const tail = new THREE.Mesh(FOX_TAIL_GEOMETRY, FOX_MATERIAL);
-  tail.position.set(0, 0.4, 0.36);
-  tail.rotation.x = -0.55;
+  head.scale.set(0.115, 0.12, 0.15);
+  head.position.set(0, 0.45, -0.32);
+  const muzzle = new THREE.Mesh(FOX_MUZZLE_GEOMETRY, FOX_DARK_MATERIAL);
+  muzzle.position.set(0, -0.025, -0.16);
+  muzzle.rotation.x = -Math.PI / 2;
+  head.add(muzzle);
+  const tail = new THREE.Group();
+  const tailMesh = new THREE.Mesh(FOX_TAIL_GEOMETRY, FOX_MATERIAL);
+  tailMesh.scale.set(0.075, 0.075, 0.3);
+  tailMesh.position.z = 0.22;
+  const tailTip = new THREE.Mesh(FOX_TAIL_GEOMETRY, FOX_LIGHT_MATERIAL);
+  tailTip.scale.set(0.055, 0.055, 0.1);
+  tailTip.position.z = 0.48;
+  tail.add(tailMesh, tailTip);
+  tail.position.set(0, 0.39, 0.24);
+  tail.rotation.x = -0.18;
   root.add(torso, head, tail);
   for (const side of [-1, 1]) {
     const ear = new THREE.Mesh(FOX_EAR_GEOMETRY, FOX_MATERIAL);
-    ear.position.set(side * 0.06, 0.5, -0.34);
+    ear.position.set(side * 0.06, 0.11, -0.02);
     ear.rotation.z = side * 0.3;
-    root.add(ear);
+    head.add(ear);
   }
-  const legs = buildQuadLegs(FOX_LEG_GEOMETRY, FOX_MATERIAL, 0.32, 0.26);
-  legs.forEach((leg) => root.add(leg));
-  return { root, legs, isHopper: false };
+  const legs = buildQuadLegs(FOX_UPPER_LEG_GEOMETRY, FOX_LOWER_LEG_GEOMETRY, FOX_DARK_MATERIAL, 0.31, 0.16, 0.15);
+  legs.forEach((leg) => root.add(leg.hip));
+  return { root, legs, isHopper: false, body: torso, head, tail };
 }
 
 function buildRabbit(random: () => number): GroundBuild {
   const root = new THREE.Group();
   root.scale.setScalar(0.8 + random() * 0.35);
   const body = new THREE.Mesh(RABBIT_BODY_GEOMETRY, RABBIT_MATERIAL);
+  body.scale.set(0.95, 1.05, 1.25);
   body.position.y = 0.17;
+  const haunch = new THREE.Mesh(RABBIT_HAUNCH_GEOMETRY, RABBIT_MATERIAL);
+  haunch.scale.set(0.16, 0.14, 0.19);
+  haunch.position.set(0, 0.16, 0.1);
   const head = new THREE.Mesh(RABBIT_HEAD_GEOMETRY, RABBIT_MATERIAL);
   head.position.set(0, 0.26, -0.15);
   const tail = new THREE.Mesh(RABBIT_TAIL_GEOMETRY, RABBIT_MATERIAL);
   tail.position.set(0, 0.18, 0.18);
-  root.add(body, head, tail);
+  root.add(body, haunch, head, tail);
   for (const side of [-1, 1]) {
     const ear = new THREE.Mesh(RABBIT_EAR_GEOMETRY, RABBIT_MATERIAL);
     ear.position.set(side * 0.05, 0.42, -0.13);
     ear.rotation.x = -0.15;
     root.add(ear);
   }
-  return { root, legs: [], isHopper: true };
+  return { root, legs: [], isHopper: true, body, head, tail };
 }
 
 function buildGroundAnimal(species: GroundSpeciesId, random: () => number): GroundBuild {
@@ -333,21 +455,18 @@ function buildBird(random: () => number): BirdBuild {
   const root = new THREE.Group();
   root.scale.setScalar(0.7 + random() * 0.6);
   const body = new THREE.Mesh(BIRD_BODY_GEOMETRY, BIRD_MATERIAL);
-  // Cone apex points +Y by default; rotate so it points along -Z, matching
-  // the world's forward convention (see the module doc comment above).
-  body.rotation.x = -Math.PI / 2;
+  body.scale.set(0.045, 0.055, 0.16);
   root.add(body);
 
   const wingL = new THREE.Group();
   wingL.position.set(-0.02, 0.02, 0);
   const wingLMesh = new THREE.Mesh(BIRD_WING_GEOMETRY, BIRD_MATERIAL);
-  wingLMesh.position.x = -0.2;
   wingL.add(wingLMesh);
 
   const wingR = new THREE.Group();
   wingR.position.set(0.02, 0.02, 0);
   const wingRMesh = new THREE.Mesh(BIRD_WING_GEOMETRY, BIRD_MATERIAL);
-  wingRMesh.position.x = 0.2;
+  wingRMesh.scale.x = -1;
   wingR.add(wingRMesh);
 
   root.add(wingL, wingR);
@@ -360,8 +479,15 @@ function buildBird(random: () => number): BirdBuild {
 
 interface GroundAnimalInstance {
   root: THREE.Group;
-  legs: THREE.Group[];
+  legs: ArticulatedLeg[];
   isHopper: boolean;
+  body: THREE.Object3D;
+  head: THREE.Object3D;
+  tail: THREE.Object3D;
+  bodyRestY: number;
+  bodyRestPitch: number;
+  headRestPitch: number;
+  tailRestYaw: number;
   previous: THREE.Vector3;
   yaw: number;
   gaitPhase: number;
@@ -380,6 +506,7 @@ interface BirdInstance {
   yaw: number;
   flapPhase: number;
   flapSpeed: number;
+  glidePhase: number;
   phaseOffset: number;
 }
 
@@ -515,6 +642,7 @@ export class WildlifeDirector {
         yaw: 0,
         flapPhase: built.flapPhase,
         flapSpeed: built.flapSpeed,
+        glidePhase: this.random() * Math.PI * 2,
         phaseOffset: this.random() * Math.PI * 2,
       });
     }
@@ -551,6 +679,13 @@ export class WildlifeDirector {
         root: built.root,
         legs: built.legs,
         isHopper: built.isHopper,
+        body: built.body,
+        head: built.head,
+        tail: built.tail,
+        bodyRestY: built.body.position.y,
+        bodyRestPitch: built.body.rotation.x,
+        headRestPitch: built.head.rotation.x,
+        tailRestYaw: built.tail.rotation.y,
         previous,
         yaw: 0,
         gaitPhase: this.random() * Math.PI * 2,
@@ -600,20 +735,24 @@ export class WildlifeDirector {
 
     for (const bird of encounter.birds) {
       bird.flapPhase += dt * bird.flapSpeed;
+      bird.glidePhase += dt * 0.52;
+      const pose = birdFlightPose(bird.flapPhase, bird.glidePhase + bird.phaseOffset * 0.25);
       const wobble = Math.sin(encounter.age * 0.6 + bird.phaseOffset) * 1.2;
       const x = baseX + bird.offset.x;
-      const y = baseY + bird.offset.y + Math.sin(bird.flapPhase * 0.5) * 0.15;
+      const y = baseY + bird.offset.y + pose.lift;
       const z = baseZ + bird.offset.z + wobble;
 
       const dx = x - bird.previous.x;
       const dz = z - bird.previous.z;
-      bird.yaw = computeFacingYaw(dx, dz, bird.yaw);
+      bird.yaw = dampAngle(bird.yaw, computeFacingYaw(dx, dz, bird.yaw), 7, dt);
       bird.previous.set(x, y, z);
 
       bird.root.position.set(x, y, z);
       bird.root.rotation.y = bird.yaw;
-      bird.wingL.rotation.z = Math.sin(bird.flapPhase) * 0.7 + 0.15;
-      bird.wingR.rotation.z = -Math.sin(bird.flapPhase) * 0.7 - 0.15;
+      bird.root.rotation.x = pose.bodyPitch;
+      bird.root.rotation.z = Math.sin(encounter.age * 0.38 + bird.phaseOffset) * 0.08;
+      bird.wingL.rotation.z = pose.wing;
+      bird.wingR.rotation.z = -pose.wing;
     }
   }
 
@@ -623,23 +762,32 @@ export class WildlifeDirector {
     const laneLateral = lerpNum(encounter.lateralStart, encounter.lateralEnd, f);
 
     for (const animal of encounter.animals) {
-      animal.gaitPhase += dt * animal.gaitSpeed;
       const along = encounter.currentDistance + animal.alongJitter;
       const lateral = laneLateral + Math.sin(encounter.age * 1.4 + animal.phaseOffset) * animal.lateralWobble;
       this.world.groundPosition(along, lateral, this.scratch);
 
       const dx = this.scratch.x - animal.previous.x;
       const dz = this.scratch.z - animal.previous.z;
-      animal.yaw = computeFacingYaw(dx, dz, animal.yaw);
+      const travel = Math.hypot(dx, dz);
+      animal.gaitPhase += travel * animal.gaitSpeed;
+      animal.yaw = dampAngle(animal.yaw, computeFacingYaw(dx, dz, animal.yaw), 9, dt);
       animal.previous.copy(this.scratch);
 
-      if (animal.isHopper) {
-        const hop = Math.max(0, Math.sin(animal.gaitPhase));
-        animal.root.position.set(this.scratch.x, this.scratch.y + hop * 0.14, this.scratch.z);
+      if (encounter.kind === "rabbit") {
+        const pose = rabbitPose(animal.gaitPhase);
+        animal.root.position.set(this.scratch.x, this.scratch.y + pose.lift, this.scratch.z);
+        animal.body.rotation.x = animal.bodyRestPitch + pose.bodyPitch;
+        animal.head.rotation.x = animal.headRestPitch + pose.headPitch;
       } else {
-        animal.root.position.copy(this.scratch);
+        const pose = quadrupedPose(encounter.kind, animal.gaitPhase);
+        animal.root.position.set(this.scratch.x, this.scratch.y, this.scratch.z);
+        animal.body.position.y = animal.bodyRestY + pose.bodyBob;
+        animal.body.rotation.x = animal.bodyRestPitch + pose.bodyPitch;
+        animal.head.rotation.x = animal.headRestPitch + pose.headPitch;
+        animal.tail.rotation.y = animal.tailRestYaw + pose.tailYaw;
         for (let i = 0; i < animal.legs.length; i += 1) {
-          animal.legs[i].rotation.x = Math.sin(animal.gaitPhase + QUAD_LEG_PHASES[i]) * 0.5;
+          animal.legs[i].hip.rotation.x = pose.legSwing[i];
+          animal.legs[i].knee.rotation.x = pose.kneeBend[i];
         }
       }
       animal.root.rotation.y = animal.yaw;

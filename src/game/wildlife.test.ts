@@ -9,8 +9,10 @@ import {
   SPAWN_AHEAD_RANGE,
   SPAWN_INTERVAL_RANGE,
   WildlifeDirector,
+  birdFlightPose,
   clamp01,
   computeFacingYaw,
+  dampAngle,
   firstSpawnDelay,
   flockMotionParams,
   groundMotionParams,
@@ -19,6 +21,8 @@ import {
   pickSide,
   pickSpecies,
   pickWeighted,
+  quadrupedPose,
+  rabbitPose,
   smoothEase,
   spawnAheadOffset,
   speciesWeights,
@@ -79,6 +83,34 @@ describe("computeFacingYaw", () => {
   it("matches the atan2(-dx, -dz) convention the road sampler uses", () => {
     expect(computeFacingYaw(0, -1, 0)).toBeCloseTo(0, 8);
     expect(computeFacingYaw(1, 0, 0)).toBeCloseTo(-Math.PI / 2, 8);
+  });
+});
+
+describe("natural motion poses", () => {
+  it("smooths yaw across the -pi/pi seam without taking the long turn", () => {
+    const current = Math.PI - 0.02;
+    const next = dampAngle(current, -Math.PI + 0.02, 8, 0.1);
+    expect(Math.abs(next - current)).toBeLessThan(0.04);
+  });
+
+  it("uses opposing diagonal legs and articulated knees for quadrupeds", () => {
+    const deer = quadrupedPose("deer", Math.PI / 2);
+    const fox = quadrupedPose("fox", Math.PI / 2);
+    expect(deer.legSwing[0]).toBeCloseTo(deer.legSwing[3], 8);
+    expect(deer.legSwing[1]).toBeCloseTo(deer.legSwing[2], 8);
+    expect(Math.sign(deer.legSwing[0])).toBe(-Math.sign(deer.legSwing[1]));
+    expect(fox.legSwing[0]).toBeGreaterThan(deer.legSwing[0]);
+    expect(deer.kneeBend.every((value) => value >= 0)).toBe(true);
+  });
+
+  it("gives rabbits a grounded takeoff and birds a flap-to-glide envelope", () => {
+    expect(rabbitPose(0).lift).toBeCloseTo(0, 8);
+    expect(rabbitPose(Math.PI / 2).lift).toBeGreaterThan(0.14);
+
+    const flap = birdFlightPose(Math.PI / 2, -Math.PI / 2);
+    const glide = birdFlightPose(Math.PI / 2, Math.PI / 2);
+    expect(flap.wing).toBeGreaterThan(glide.wing);
+    expect([flap, glide].every((pose) => Object.values(pose).every(Number.isFinite))).toBe(true);
   });
 });
 
