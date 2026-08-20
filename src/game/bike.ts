@@ -7,16 +7,21 @@ export class Bicycle {
   readonly group = new THREE.Group();
   private wheels: THREE.Group[] = [];
   private pedals = new THREE.Group();
+  private crankAngle = 0;
+  private crankTarget = 0;
 
   constructor() {
     this.group.name = "bicycle";
     this.build();
   }
 
-  update(speed: number, lean: number, pedalTime: number): void {
+  update(speed: number, lean: number, dt: number, pedaling: boolean, pedalStroke: boolean): void {
     this.group.rotation.z = lean;
     for (const wheel of this.wheels) wheel.rotation.x -= speed * 0.032;
-    this.pedals.rotation.x = pedalTime * Math.min(speed * 0.85, 8);
+    if (pedalStroke) this.crankTarget += Math.PI;
+    if (pedaling && !pedalStroke) this.crankTarget += dt * (2.2 + speed * 0.38);
+    this.crankAngle += (this.crankTarget - this.crankAngle) * (1 - Math.exp(-15 * dt));
+    this.pedals.rotation.x = this.crankAngle;
   }
 
   private build(): void {
@@ -52,7 +57,13 @@ export class Bicycle {
     const axle = tube(new THREE.Vector3(-0.23, 0, 0), new THREE.Vector3(0.23, 0, 0), 0.025, INK);
     const chainring = new THREE.Mesh(new THREE.TorusGeometry(0.19, 0.018, 6, 28), INK);
     chainring.rotation.y = Math.PI / 2;
-    this.pedals.add(axle, chainring);
+    const leftArm = tube(new THREE.Vector3(-0.04, 0, 0), new THREE.Vector3(-0.13, 0.25, 0), 0.018, INK);
+    const rightArm = tube(new THREE.Vector3(0.04, 0, 0), new THREE.Vector3(0.13, -0.25, 0), 0.018, INK);
+    const leftPedal = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.035, 0.075), INK);
+    leftPedal.position.set(-0.22, 0.25, 0);
+    const rightPedal = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.035, 0.075), INK);
+    rightPedal.position.set(0.22, -0.25, 0);
+    this.pedals.add(axle, chainring, leftArm, rightArm, leftPedal, rightPedal);
     this.group.add(this.pedals);
 
     this.group.scale.setScalar(0.86);

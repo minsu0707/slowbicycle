@@ -26,6 +26,7 @@ export class SlowBicycleGame {
   private shadowTarget = new THREE.Object3D();
   private loopStarted = false;
   private bestDistance = loadBestDistance();
+  private cameraKick = 0;
 
   constructor(container: HTMLElement) {
     this.ui = new GameUI(container);
@@ -141,13 +142,16 @@ export class SlowBicycleGame {
   private frame(): void {
     const dt = Math.min(this.clock.getDelta(), 0.05);
     if (this.mode === "riding") {
-      const controls = this.input.sample();
+      const controls = this.input.sample(dt);
+      const pedalStroke = this.input.consumePedalStroke();
+      if (pedalStroke) this.cameraKick = Math.min(1.35, this.cameraKick + 0.85);
+      this.cameraKick *= Math.exp(-6.5 * dt);
       const road = this.world.sample(this.state.distance);
       const offRoad = Math.abs(this.state.lateral) > this.world.roadHalfWidth() - 0.25;
       this.state = stepBike(this.state, controls, { slope: road.slope, offRoad }, dt);
       this.elapsed += dt;
       this.world.update(this.state.distance);
-      this.bicycle.update(this.state.speed, this.state.lean, this.elapsed);
+      this.bicycle.update(this.state.speed, this.state.lean, dt, controls.pedal > 0, pedalStroke);
       this.audio.update(this.state.speed, controls.pedal, dt);
       this.ui.update(speedKmh(this.state.speed), this.state.distance, this.state.stamina);
       this.bestDistance = Math.max(this.bestDistance, this.state.distance);
@@ -172,8 +176,8 @@ export class SlowBicycleGame {
     this.bicycle.group.rotation.x = -Math.atan(road.slope);
 
     const speedRatio = Math.min(this.state.speed / 13, 1);
-    const distance = 7.2 + speedRatio * 2.8;
-    const height = 3.5 + speedRatio * 1.1;
+    const distance = 7.2 + speedRatio * 2.8 + this.cameraKick * 0.55;
+    const height = 3.5 + speedRatio * 1.1 + this.cameraKick * 0.08;
     const back = road.tangent.clone().multiplyScalar(-distance);
     const desiredCamera = bikePosition.clone().add(back).add(new THREE.Vector3(0, height, 0));
     if (!this.settings.reduceMotion && this.mode === "riding") {
@@ -184,7 +188,8 @@ export class SlowBicycleGame {
     const lookAhead = bikePosition.clone().addScaledVector(road.tangent, 10 + this.state.speed * 0.8);
     lookAhead.y += 1.1;
     this.camera.lookAt(lookAhead);
-    this.camera.fov = damp(this.camera.fov, this.settings.reduceMotion ? 60 : 60 + speedRatio * 6, 4, dt || 0.016);
+    const kickFov = this.settings.reduceMotion ? 0 : this.cameraKick * 2.8;
+    this.camera.fov = damp(this.camera.fov, this.settings.reduceMotion ? 60 : 60 + speedRatio * 6 + kickFov, 7, dt || 0.016);
     this.camera.updateProjectionMatrix();
     this.shadowTarget.position.copy(bikePosition);
   }
