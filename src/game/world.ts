@@ -45,6 +45,53 @@ function isLandmarkClearing(distance: number, lateral: number): boolean {
   return landmarkTerrainCarve(distance, lateral).flatten > 0.045;
 }
 
+const FENCE_OFFSET = ROAD_HALF_WIDTH + 1.15;
+const FENCE_POST_GAP = 3.4;
+const LAMP_SPACING = 55;
+
+interface FenceLayout {
+  side: 1 | -1;
+  lateral: number;
+  startOffset: number;
+}
+
+/**
+ * Whether chunk `index` has a fence at all, and if so on which side and where
+ * its run starts — the single source of truth `makeFence` (rendering) and
+ * `fenceBlockAt` (collision) both read from, so the invisible wall a rider
+ * bumps into can never drift out of sync with the posts they actually see.
+ */
+function fenceLayoutForChunk(index: number): FenceLayout | null {
+  const random = mulberry32(index * 60127 + 31);
+  if (random() > 0.42) return null;
+  const side = random() > 0.5 ? 1 : -1;
+  const startOffset = random() * 5;
+  return { side, lateral: side * FENCE_OFFSET, startOffset };
+}
+
+export interface FenceBlock {
+  side: 1 | -1;
+  lateral: number;
+}
+
+/** The fence standing at `distance`, if any — mirrors `makeFence`'s own run bounds and landmark gaps exactly. */
+export function fenceBlockAt(distance: number): FenceBlock | null {
+  const index = Math.floor(distance / CHUNK_LENGTH);
+  const start = index * CHUNK_LENGTH;
+  const layout = fenceLayoutForChunk(index);
+  if (!layout) return null;
+  if (distance < start + layout.startOffset || distance > start + CHUNK_LENGTH - 3) return null;
+  if (isLandmarkClearing(distance, layout.lateral)) return null;
+  return { side: layout.side, lateral: layout.lateral };
+}
+
+/** Keeps `lateral` on the road side of any fence standing at `distance` — a rider can lean into a fence, not ride through it. */
+export function clampToFence(distance: number, lateral: number): number {
+  const block = fenceBlockAt(distance);
+  if (!block) return lateral;
+  return block.side > 0 ? Math.min(lateral, block.lateral) : Math.max(lateral, block.lateral);
+}
+
 type PreloadJob = { kind: "near" | "far"; index: number };
 
 // Shared, reused materials — prop instances differ only by geometry/transform,
@@ -260,6 +307,12 @@ export class EndlessWorld {
 
   roadHalfWidth(): number {
     return ROAD_HALF_WIDTH;
+  }
+
+  /** Blocks a rider from riding straight through a fence — no wall where none is rendered (low quality skips fences entirely). */
+  clampLateralAtFence(distance: number, lateral: number): number {
+    if (this.quality !== "high") return lateral;
+    return clampToFence(distance, lateral);
   }
 
   private buildSkyDome(): THREE.Mesh {
@@ -526,15 +579,13 @@ export class EndlessWorld {
   private makeFence(index: number, start: number): THREE.Group {
     const group = new THREE.Group();
     if (this.quality !== "high") return group;
-    const random = mulberry32(index * 60127 + 31);
-    if (random() > 0.42) return group;
-    const side = random() > 0.5 ? 1 : -1;
-    const gap = 3.4;
+    const layout = fenceLayoutForChunk(index);
+    if (!layout) return group;
     let previous: THREE.Vector3 | null = null;
-    for (let s = start + random() * 5; s < start + CHUNK_LENGTH - 3; s += gap) {
+    for (let s = start + layout.startOffset; s < start + CHUNK_LENGTH - 3; s += FENCE_POST_GAP) {
       const sample = this.sample(s);
       const right = new THREE.Vector3(-sample.tangent.z, 0, sample.tangent.x).normalize();
-      const offset = side * (ROAD_HALF_WIDTH + 1.15);
+      const offset = layout.lateral;
       if (isLandmarkClearing(s, offset)) {
         previous = null;
         continue;
@@ -559,27 +610,38 @@ export class EndlessWorld {
     return group;
   }
 
-  /** A rare, softly glowing lamppost — the design doc's "드문 가로등". No real light, just a warm accent. */
-  private makeLamppost(index: number, start: number): THREE.Group {
+  /**
+   * Softly glowing lampposts at a regular interval, alternating sides — a
+   * lit road rather than the rare one-per-several-chunks accent this used to
+   * be. Slots are keyed by an absolute position along the route (not the
+   * chunk index), so a chunk boundary can never duplicate or skip one.
+   */
+  private makeLamppost(_index: number, start: number): THREE.Group {
     const group = new THREE.Group();
     if (this.quality !== "high") return group;
-    const random = mulberry32(index * 74219 + 43);
-    if (random() > 0.12) return group;
-    const side = random() > 0.5 ? 1 : -1;
-    const s = start + 20 + random() * (CHUNK_LENGTH - 40);
-    const offset = side * (ROAD_HALF_WIDTH + 1.6);
-    if (isLandmarkClearing(s, offset)) return group;
-    const sample = this.sample(s);
-    const right = new THREE.Vector3(-sample.tangent.z, 0, sample.tangent.x).normalize();
-    const position = sample.position.clone().addScaledVector(right, offset);
-    position.y = groundHeight(s, offset);
+    const spacing = LAMP_SPACING;
+    const firstSlot = Math.ceil(start / spacing);
+    const lastSlot = Math.ceil((start + CHUNK_LENGTH) / spacing) - 1;
+    for (let slot = firstSlot; slot <= lastSlot; slot += 1) {
+      const random = mulberry32(slot * 74219 + 43);
+      const s = slot * spacing + (random() - 0.5) * 8;
+      const side = slot % 2 === 0 ? 1 : -1;
+      const offset = side * (ROAD_HALF_WIDTH + 1.6);
+      if (isLandmarkClearing(s, offset)) continue;
+      const sample = this.sample(s);
+      const right = new THREE.Vector3(-sample.tangent.z, 0, sample.tangent.x).normalize();
+      const position = sample.position.clone().addScaledVector(right, offset);
+      position.y = groundHeight(s, offset);
 
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.045, 2.6, 6), LAMP_POLE_MATERIAL);
-    pole.position.set(0, 1.3, 0);
-    const glow = new THREE.Mesh(new THREE.IcosahedronGeometry(0.12, 0), LAMP_GLOW_MATERIAL);
-    glow.position.set(0, 2.65, 0);
-    group.add(pole, glow);
-    group.position.copy(position);
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.045, 2.6, 6), LAMP_POLE_MATERIAL);
+      pole.position.set(0, 1.3, 0);
+      const glow = new THREE.Mesh(new THREE.IcosahedronGeometry(0.12, 0), LAMP_GLOW_MATERIAL);
+      glow.position.set(0, 2.65, 0);
+      const lamp = new THREE.Group();
+      lamp.add(pole, glow);
+      lamp.position.copy(position);
+      group.add(lamp);
+    }
     return group;
   }
 

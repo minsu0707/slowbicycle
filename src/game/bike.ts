@@ -3,6 +3,9 @@ import * as THREE from "three";
 const INK = new THREE.MeshStandardMaterial({ color: 0x18221f, roughness: 0.48, metalness: 0.35 });
 const FRAME = new THREE.MeshStandardMaterial({ color: 0xc55d3f, roughness: 0.42, metalness: 0.28 });
 const METAL = new THREE.MeshStandardMaterial({ color: 0xb8bcb8, roughness: 0.3, metalness: 0.82 });
+// Off by day, so day-riding pays no cost for a lamp nobody sees lit.
+const HEADLAMP_GLOW = new THREE.MeshBasicMaterial({ color: 0xfff2c4, fog: false, transparent: true, opacity: 0 });
+const TAILLAMP_GLOW = new THREE.MeshBasicMaterial({ color: 0xff2a2a, fog: false, transparent: true, opacity: 0 });
 const MODEL_SCALE = 0.86;
 const WHEEL_RADIUS = 0.98;
 const WHEEL_HUB_HEIGHT = 0.72;
@@ -17,11 +20,24 @@ export class Bicycle {
   private pedals = new THREE.Group();
   private crankAngle = 0;
   private crankTarget = 0;
+  private headlampBulb = new THREE.Mesh(new THREE.IcosahedronGeometry(0.045, 0), HEADLAMP_GLOW);
+  private taillampBulb = new THREE.Mesh(new THREE.IcosahedronGeometry(0.038, 0), TAILLAMP_GLOW);
+  private headlampBeam = new THREE.SpotLight(0xfff2c4, 0, 22, Math.PI / 7, 0.55, 1.4);
 
   constructor() {
     this.group.name = "bicycle";
     this.group.rotation.order = "YXZ";
     this.build();
+  }
+
+  /** Fades the head/tail lamps and headlamp beam in with the night — off (and free) in daylight. */
+  setNightAmount(amount: number): void {
+    const clamped = THREE.MathUtils.clamp(amount, 0, 1);
+    HEADLAMP_GLOW.opacity = clamped;
+    TAILLAMP_GLOW.opacity = clamped;
+    this.headlampBulb.visible = this.taillampBulb.visible = clamped > 0.02;
+    this.headlampBeam.intensity = clamped * 5;
+    this.headlampBeam.visible = clamped > 0.02;
   }
 
   update(speed: number, lean: number, steering: number, dt: number, pedaling: boolean, pedalStroke: boolean): void {
@@ -75,6 +91,7 @@ export class Bicycle {
     seat.position.copy(joints.seat).add(new THREE.Vector3(0, 0.08, 0.05));
     this.group.add(seat, tube(joints.frontTop, new THREE.Vector3(0, 1.67, -0.82), 0.026, INK));
     this.addDropHandlebars();
+    this.addLamps();
 
     this.pedals.position.copy(joints.crank);
     const axle = tube(new THREE.Vector3(-0.23, 0, 0), new THREE.Vector3(0.23, 0, 0), 0.025, INK);
@@ -106,6 +123,10 @@ export class Bicycle {
     this.group.traverse((object) => {
       if (object instanceof THREE.Mesh) object.castShadow = true;
     });
+    // Tiny transparent glow orbs: a shadow from either would be imperceptible
+    // and just wastes a shadow-map draw, so exempt them from the blanket rule above.
+    this.headlampBulb.castShadow = false;
+    this.taillampBulb.castShadow = false;
   }
 
   private makeWheel(radius: number): THREE.Group {
@@ -164,6 +185,25 @@ export class Bicycle {
     }
   }
 
+  /**
+   * Front (white) and rear (red) lamps — off by day via `setNightAmount`.
+   * Only the front casts an actual beam; a tail light doesn't need to light
+   * anything, just be seen.
+   */
+  private addLamps(): void {
+    this.headlampBulb.position.set(0, 1.49, -0.99);
+    this.group.add(this.headlampBulb);
+
+    this.headlampBeam.position.set(0, 1.49, -0.99);
+    const beamTarget = new THREE.Object3D();
+    beamTarget.position.set(0, 1.0, -8);
+    this.headlampBeam.target = beamTarget;
+    this.headlampBeam.visible = false;
+    this.group.add(this.headlampBeam, beamTarget);
+
+    this.taillampBulb.position.set(0, 1.44, 0.42);
+    this.group.add(this.taillampBulb);
+  }
 }
 
 function tube(a: THREE.Vector3, b: THREE.Vector3, radius: number, material: THREE.Material): THREE.Mesh {

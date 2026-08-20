@@ -185,6 +185,8 @@ export class SlowBicycleGame {
       const road = this.world.sample(this.state.distance);
       const offRoad = Math.abs(this.state.lateral) > this.world.roadHalfWidth() - 0.25;
       this.state = stepBike(this.state, controls, { slope: road.slope, offRoad }, dt);
+      const fencedLateral = this.world.clampLateralAtFence(this.state.distance, this.state.lateral);
+      if (fencedLateral !== this.state.lateral) this.state = { ...this.state, lateral: fencedLateral };
       const recoveredState = returnToRoadIfNeeded(this.state);
       if (recoveredState !== this.state) this.ui.announceRoadReturn();
       this.state = recoveredState;
@@ -269,6 +271,7 @@ export class SlowBicycleGame {
     this.sun.color.setHex(atmosphere.sunColor);
     this.sun.intensity = atmosphere.sunIntensity;
     this.world.setAtmosphere(atmosphere.skyTint, atmosphere.starOpacity);
+    this.bicycle.setNightAmount(atmosphere.starOpacity);
 
     const lightRadius = 82;
     const lightHeight = 8 + Math.max(0, atmosphere.sunElevation) * 72;

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { planLandmark } from "./landmarks";
 import { roadPoint } from "./procedural";
-import { groundHeight } from "./world";
+import { clampToFence, fenceBlockAt, groundHeight } from "./world";
 
 describe("groundHeight", () => {
   it("matches the road center throughout the generated route", () => {
@@ -36,5 +36,28 @@ describe("groundHeight", () => {
     const roadY = roadPoint(bridge.center).y;
     expect(groundHeight(bridge.center, 0)).toBeCloseTo(roadY, 8);
     expect(groundHeight(bridge.center, 12)).toBeLessThan(roadY - bridge.gorgeDepth * 0.55);
+  });
+});
+
+describe("fenceBlockAt / clampToFence", () => {
+  it("stops lateral motion at the fence line, but only inside a chunk that actually has one", () => {
+    // Chunk index 2 (distance 360–540) is deterministically fenced by the same
+    // seeded layout `makeFence` renders from; chunk 0 is deterministically not.
+    let sawFenceBlock = false;
+    for (let distance = 360; distance < 540; distance += 1) {
+      const block = fenceBlockAt(distance);
+      if (!block) continue;
+      sawFenceBlock = true;
+      const beyond = block.lateral + block.side * 2;
+      expect(clampToFence(distance, beyond)).toBeCloseTo(block.lateral, 8);
+      const stillInside = block.side * 0.5;
+      expect(clampToFence(distance, stillInside)).toBe(stillInside);
+    }
+    expect(sawFenceBlock).toBe(true);
+
+    for (let distance = 0; distance < 180; distance += 5) {
+      expect(fenceBlockAt(distance)).toBeNull();
+      expect(clampToFence(distance, 6)).toBe(6);
+    }
   });
 });
