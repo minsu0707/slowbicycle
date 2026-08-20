@@ -91,9 +91,10 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 1px s
 .speedometer strong { font-size: 32px; line-height: 1; font-weight: 300; letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
 .speedometer span { color: var(--muted); font-size: 9px; letter-spacing: .1em; }
 
-.distance { position: absolute; top: 28px; left: 50%; transform: translateX(-50%); font-size: 10px; letter-spacing: .08em; font-variant-numeric: tabular-nums; }
+.distance { position: absolute; top: 28px; left: 30px; font-size: 10px; letter-spacing: .08em; font-variant-numeric: tabular-nums; }
 .distance span { color: var(--muted); margin-right: 8px; }
 .distance b { font-weight: 400; }
+.distance em { color: var(--muted); font-size: 9px; font-style: normal; text-transform: lowercase; }
 
 .stamina { position: absolute; left: 30px; bottom: 18px; width: 72px; height: 1px; background: rgba(245,243,236,.28); overflow: hidden; }
 .stamina i { display: block; width: 100%; height: 100%; transform-origin: left; background: var(--fg); }
@@ -151,6 +152,7 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 1px s
   .title-meta { display: none; }
   .best-distance { grid-column: 1 / 4; justify-self: center; }
   .speedometer, .stamina { left: 20px; }
+  .distance { left: 20px; }
   .pause-button { right: 20px; }
 }
 

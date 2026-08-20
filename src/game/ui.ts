@@ -10,6 +10,7 @@ export class GameUI {
   readonly controls: Record<"pedal" | "brake" | "left" | "right", HTMLButtonElement>;
   private speed: HTMLElement;
   private distance: HTMLElement;
+  private distanceUnit: HTMLElement;
   private stamina: HTMLElement;
   private title: HTMLElement;
   private pause: HTMLElement;
@@ -28,6 +29,7 @@ export class GameUI {
     this.restartButton = this.get<HTMLButtonElement>("restart-ride");
     this.speed = this.get("speed-value");
     this.distance = this.get("distance-value");
+    this.distanceUnit = this.get("distance-unit");
     this.stamina = this.get("stamina-fill");
     this.title = this.get("title-screen");
     this.pause = this.get("pause-screen");
@@ -69,7 +71,9 @@ export class GameUI {
 
   update(speedKmh: number, distanceMeters: number, stamina: number): void {
     this.speed.textContent = Math.round(speedKmh).toString().padStart(2, "0");
-    this.distance.textContent = (distanceMeters / 1000).toFixed(2);
+    const distance = formatDistance(distanceMeters);
+    this.distance.textContent = distance.value;
+    this.distanceUnit.textContent = distance.unit;
     this.stamina.style.transform = `scaleX(${stamina})`;
   }
 
@@ -152,7 +156,7 @@ function markup(settings: Settings): string {
 
     <section id="ride-hud" class="hud is-hidden" aria-live="polite">
       <div class="speedometer"><strong id="speed-value">00</strong><span>km/h</span></div>
-      <div class="distance"><span>distance</span> <b id="distance-value">0.00</b> km</div>
+      <div class="distance"><span>distance</span> <b id="distance-value">0</b> <em id="distance-unit">m</em></div>
       <div class="stamina" aria-label="페달 여유"><i id="stamina-fill"></i></div>
       <button id="pause-button" class="pause-button" aria-label="일시정지">pause</button>
     </section>
@@ -183,4 +187,10 @@ function markup(settings: Settings): string {
       <div><button id="touch-brake" class="small" aria-label="브레이크">BRK</button><button id="touch-pedal" aria-label="페달">GO</button></div>
     </nav>
   `;
+}
+
+export function formatDistance(distanceMeters: number): { value: string; unit: "m" | "km" } {
+  const safeDistance = Number.isFinite(distanceMeters) ? Math.max(0, distanceMeters) : 0;
+  if (safeDistance < 1000) return { value: Math.floor(safeDistance).toString(), unit: "m" };
+  return { value: (safeDistance / 1000).toFixed(2), unit: "km" };
 }
