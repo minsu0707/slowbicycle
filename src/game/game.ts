@@ -163,7 +163,7 @@ export class SlowBicycleGame {
       this.state = stepBike(this.state, controls, { slope: road.slope, offRoad }, dt);
       this.elapsed += dt;
       this.world.update(this.state.distance);
-      this.bicycle.update(this.state.speed, this.state.lean, dt, controls.pedal > 0, pedalStroke);
+      this.bicycle.update(this.state.speed, this.state.lean, controls.steer, dt, controls.pedal > 0, pedalStroke);
       this.audio.update(this.state.speed, controls.pedal, dt);
       this.ui.update(speedKmh(this.state.speed), this.state.distance, this.state.stamina);
       this.bestDistance = Math.max(this.bestDistance, this.state.distance);
@@ -184,7 +184,9 @@ export class SlowBicycleGame {
     this.bikePosition.copy(road.position).addScaledVector(this.roadRight, this.state.lateral);
     this.bikePosition.y += 0.07;
     this.bicycle.group.position.copy(this.bikePosition);
-    this.bicycle.group.rotation.y = road.yaw + this.state.heading;
+    // Physics uses positive heading for motion toward the road's right side,
+    // while Three.js positive Y rotation turns a -Z-facing model to the left.
+    this.bicycle.group.rotation.y = road.yaw - this.state.heading;
     this.bicycle.group.rotation.x = -Math.atan(road.slope);
 
     const speedRatio = Math.min(this.state.speed / 13, 1);

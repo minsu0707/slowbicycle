@@ -49,11 +49,13 @@ export function stepBike(
   const acceleration = drive + gravity - rolling - drag - roughness - braking;
   const speed = clamp(previous.speed + acceleration * frame, 0, MAX_SPEED);
 
-  const steerAuthority = 0.18 + Math.min(speed / 7, 1) * 0.64;
+  // A road bike changes lane with a small heading angle. Large angles made the
+  // riderless bicycle snap sideways and visually skid instead of carving.
+  const steerAuthority = 0.07 + Math.min(speed / 8, 1) * 0.15;
   const targetHeading = steer * steerAuthority;
   const heading = damp(previous.heading, targetHeading, 7, frame);
   const lateral = previous.lateral + Math.sin(heading) * speed * frame;
-  const targetLean = -steer * Math.min(speed / 8, 1) * 0.48;
+  const targetLean = -steer * Math.min(speed / 9, 1) * 0.2;
   const lean = damp(previous.lean, targetLean, 8, frame);
 
   const drain = pedal > 0.72 ? (pedal - 0.72) * 0.065 : 0;

@@ -8,6 +8,8 @@ export class Bicycle {
   readonly group = new THREE.Group();
   private readonly worldWheelRadius = 0.98 * 0.86;
   private wheels: THREE.Group[] = [];
+  private frontWheel?: THREE.Group;
+  private steeringAngle = 0;
   private pedals = new THREE.Group();
   private crankAngle = 0;
   private crankTarget = 0;
@@ -17,10 +19,13 @@ export class Bicycle {
     this.build();
   }
 
-  update(speed: number, lean: number, dt: number, pedaling: boolean, pedalStroke: boolean): void {
+  update(speed: number, lean: number, steering: number, dt: number, pedaling: boolean, pedalStroke: boolean): void {
     this.group.rotation.z = lean;
     const wheelRotation = (speed * dt) / this.worldWheelRadius;
     for (const wheel of this.wheels) wheel.rotation.x -= wheelRotation;
+    const targetSteering = -steering * Math.min(speed / 5, 1) * 0.09;
+    this.steeringAngle += (targetSteering - this.steeringAngle) * (1 - Math.exp(-10 * dt));
+    if (this.frontWheel) this.frontWheel.rotation.y = this.steeringAngle;
     if (pedalStroke) this.crankTarget += Math.PI;
     if (pedaling && !pedalStroke) this.crankTarget += dt * (2.2 + speed * 0.38);
     this.crankAngle += (this.crankTarget - this.crankAngle) * (1 - Math.exp(-15 * dt));
@@ -32,6 +37,7 @@ export class Bicycle {
     rear.position.set(0, 0.72, 1.05);
     const front = this.makeWheel(0.98);
     front.position.set(0, 0.72, -1.05);
+    this.frontWheel = front;
     this.group.add(rear, front);
     this.wheels.push(rear, front);
 

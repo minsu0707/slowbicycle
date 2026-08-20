@@ -31,6 +31,16 @@ describe("bike physics", () => {
     expect(grass.speed).toBeLessThan(road.speed);
   });
 
+  it("coordinates steering direction with a restrained road-bike lean", () => {
+    const cruising = { ...DEFAULT_BIKE_STATE, speed: 10 };
+    const right = stepBike(cruising, { pedal: 0, brake: 0, steer: 1 }, { slope: 0, offRoad: false }, 0.05);
+
+    expect(right.heading).toBeGreaterThan(0);
+    expect(right.lateral).toBeGreaterThan(0);
+    expect(right.lean).toBeLessThan(0);
+    expect(Math.abs(right.lean)).toBeLessThan(0.2);
+  });
+
   it("converts meters per second to kilometers per hour", () => {
     expect(speedKmh(10)).toBe(36);
   });
