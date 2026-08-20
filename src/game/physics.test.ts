@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_BIKE_STATE, speedKmh, stepBike } from "./physics";
+import { DEFAULT_BIKE_STATE, ROAD_RETURN_LIMIT, returnToRoadIfNeeded, speedKmh, stepBike } from "./physics";
 
 describe("bike physics", () => {
   it("accelerates while pedaling and never reverses", () => {
@@ -39,6 +39,32 @@ describe("bike physics", () => {
     expect(right.lateral).toBeGreaterThan(0);
     expect(right.lean).toBeLessThan(0);
     expect(Math.abs(right.lean)).toBeLessThan(0.2);
+  });
+
+  it("allows a generous off-road margin before returning to the road", () => {
+    const exploring = { ...DEFAULT_BIKE_STATE, speed: 10, lateral: ROAD_RETURN_LIMIT, heading: 0.18, lean: -0.15 };
+
+    expect(returnToRoadIfNeeded(exploring)).toBe(exploring);
+  });
+
+  it("returns an escaped bicycle to the road without losing ride progress", () => {
+    const escaped = {
+      ...DEFAULT_BIKE_STATE,
+      speed: 10,
+      distance: 642,
+      lateral: -(ROAD_RETURN_LIMIT + 0.01),
+      heading: -0.2,
+      lean: 0.16,
+      stamina: 0.72,
+    };
+
+    expect(returnToRoadIfNeeded(escaped)).toEqual({
+      ...escaped,
+      speed: 6.5,
+      lateral: 0,
+      heading: 0,
+      lean: 0,
+    });
   });
 
   it("converts meters per second to kilometers per hour", () => {

@@ -75,6 +75,15 @@ export class GameUI {
 
   announceMilestone(kilometers: number): void {
     this.toast.textContent = `${kilometers.toFixed(0)} km`;
+    this.showToast();
+  }
+
+  announceRoadReturn(): void {
+    this.toast.textContent = "back on road";
+    this.showToast();
+  }
+
+  private showToast(): void {
     this.toast.classList.remove("show");
     void this.toast.offsetWidth;
     this.toast.classList.add("show");

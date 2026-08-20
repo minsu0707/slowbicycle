@@ -2,7 +2,14 @@ import * as THREE from "three";
 import { RideAudio } from "./audio";
 import { Bicycle } from "./bike";
 import { InputController } from "./input";
-import { DEFAULT_BIKE_STATE, damp, speedKmh, stepBike, type BikeState } from "./physics";
+import {
+  DEFAULT_BIKE_STATE,
+  damp,
+  returnToRoadIfNeeded,
+  speedKmh,
+  stepBike,
+  type BikeState,
+} from "./physics";
 import { loadBestDistance, saveBestDistance } from "./storage";
 import { GameUI, type Settings } from "./ui";
 import { EndlessWorld } from "./world";
@@ -164,6 +171,9 @@ export class SlowBicycleGame {
       const road = this.world.sample(this.state.distance);
       const offRoad = Math.abs(this.state.lateral) > this.world.roadHalfWidth() - 0.25;
       this.state = stepBike(this.state, controls, { slope: road.slope, offRoad }, dt);
+      const recoveredState = returnToRoadIfNeeded(this.state);
+      if (recoveredState !== this.state) this.ui.announceRoadReturn();
+      this.state = recoveredState;
       this.elapsed += dt;
       this.world.update(this.state.distance);
       this.bicycle.update(this.state.speed, this.state.lean, controls.steer, dt, controls.pedal > 0, pedalStroke);

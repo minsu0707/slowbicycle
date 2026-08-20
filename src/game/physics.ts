@@ -28,6 +28,7 @@ export const DEFAULT_BIKE_STATE: BikeState = {
 };
 
 const MAX_SPEED = 15;
+export const ROAD_RETURN_LIMIT = 8;
 
 export function stepBike(
   previous: BikeState,
@@ -74,6 +75,17 @@ export function stepBike(
 
 export function speedKmh(speed: number): number {
   return speed * 3.6;
+}
+
+export function returnToRoadIfNeeded(state: BikeState, lateralLimit = ROAD_RETURN_LIMIT): BikeState {
+  if (Math.abs(state.lateral) <= lateralLimit) return state;
+  return {
+    ...state,
+    speed: state.speed * 0.65,
+    lateral: 0,
+    heading: 0,
+    lean: 0,
+  };
 }
 
 export function damp(current: number, target: number, lambda: number, dt: number): number {
