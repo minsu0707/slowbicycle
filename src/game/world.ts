@@ -432,7 +432,7 @@ export class EndlessWorld {
   private makeProps(index: number, start: number): THREE.Group {
     const props = new THREE.Group();
     const random = mulberry32(index * 92821 + 91);
-    const count = this.quality === "high" ? 15 : 8;
+    const count = this.quality === "high" ? 26 : 13;
     for (let i = 0; i < count; i += 1) {
       const s = start + random() * CHUNK_LENGTH;
       const sample = this.sample(s);
@@ -449,16 +449,32 @@ export class EndlessWorld {
 
       const roll = random();
       let prop: THREE.Object3D;
-      if (roll < 0.44) {
+      if (roll < 0.56) {
         prop = makeTree(0.7 + random() * 1.4, random());
-      } else if (roll < 0.62) {
+        // Trees cluster into loose little groves more often than they stand
+        // alone — a couple of close companions read as "lush" far cheaper
+        // than raising the base count everywhere.
+        if (this.quality === "high" && random() < 0.4) {
+          const companions = 1 + Math.floor(random() * 2);
+          for (let c = 0; c < companions; c += 1) {
+            const companionOffset = offset + (random() - 0.5) * 5;
+            if (isLandmarkClearing(s, companionOffset)) continue;
+            const companion = makeTree(0.6 + random() * 1.3, random());
+            companion.position.copy(sample.position).addScaledVector(right, companionOffset);
+            companion.position.y = groundHeight(s, companionOffset) - 0.05;
+            companion.rotation.y = random() * Math.PI * 2;
+            companion.rotation.z = (random() - 0.5) * 0.12;
+            props.add(companion);
+          }
+        }
+      } else if (roll < 0.71) {
         prop = makeBush(0.8 + random() * 0.9, random());
-      } else if (roll < 0.74) {
+      } else if (roll < 0.81) {
         const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(0.45 + random() * 0.8, 0), ROCK_MATERIAL);
         rock.scale.y = 0.5 + random() * 0.2;
         rock.castShadow = true;
         prop = rock;
-      } else if (roll < 0.87) {
+      } else if (roll < 0.91) {
         prop = makeHayBale(0.55 + random() * 0.25);
       } else {
         prop = makeLog(1.4 + random() * 1.3, random());

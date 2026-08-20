@@ -34,9 +34,11 @@ export const ANIMAL_CAPS: Record<Quality, number> = { low: 7, high: 14 };
  * once a minute" and "there are birds up there" — always at least one in
  * view, close and low enough to actually notice while riding.
  */
-export const AMBIENT_FLOCK_TARGET: Record<Quality, number> = { low: 1, high: 2 };
+export const AMBIENT_FLOCK_TARGET: Record<Quality, number> = { low: 1, high: 1 };
 /** Below this fraction of animals are asleep; ambient flocks thin out but never fully vanish. */
 const AMBIENT_NIGHT_CUTOFF = 0.82;
+/** Quiet-sky gap between one ambient flock leaving and the next arriving — without it, a flock landing exactly as its predecessor expires reads as a conveyor belt instead of wildlife. */
+export const AMBIENT_RESPAWN_GAP = { min: 8, max: 22 } as const;
 
 // ---------------------------------------------------------------------------
 // Pure scheduling / species helpers — no THREE, no side effects, easy to test.
@@ -111,6 +113,12 @@ export function pickSpecies(random: () => number, nightAmount: number): SpeciesI
 /** Bird flocks are the only "size varies with quality" case — low quality halves the count. */
 export function flockSize(random: () => number, quality: Quality): number {
   const [min, max] = quality === "high" ? [5, 10] : [3, 6];
+  return Math.round(randomInRange(random, min, max));
+}
+
+/** Ambient flocks stay small — a handful of birds passing over, not a wheeling swarm. */
+export function ambientFlockSize(random: () => number, quality: Quality): number {
+  const [min, max] = quality === "high" ? [3, 5] : [2, 3];
   return Math.round(randomInRange(random, min, max));
 }
 
@@ -336,10 +344,17 @@ const RABBIT_HAUNCH_GEOMETRY = new THREE.SphereGeometry(1, 7, 5);
 // and truer to how a distant flock actually looks.
 const BIRD_MATERIAL = new THREE.MeshBasicMaterial({ color: 0x2c2a26, fog: true });
 const BIRD_BODY_GEOMETRY = new THREE.SphereGeometry(1, 6, 4);
+const BIRD_BEAK_GEOMETRY = new THREE.ConeGeometry(0.03, 0.1, 5);
+const BIRD_TAIL_GEOMETRY = new THREE.ConeGeometry(0.055, 0.18, 4);
+// A tapered, swept quad rather than a three-point sliver — root wide against
+// the body, tip pulled forward into a point — so the silhouette actually
+// reads as a wing instead of a flat blade once the bird is big enough to
+// make out its shape.
 const BIRD_WING_GEOMETRY = new THREE.BufferGeometry();
 BIRD_WING_GEOMETRY.setAttribute("position", new THREE.Float32BufferAttribute([
-  0, 0, -0.04, -0.32, 0, 0.03, -0.12, 0, 0.13,
+  0, 0, -0.055, 0, 0, 0.06, -0.38, 0, 0.095, -0.25, 0, -0.105,
 ], 3));
+BIRD_WING_GEOMETRY.setIndex([0, 1, 2, 0, 2, 3]);
 BIRD_WING_GEOMETRY.computeVertexNormals();
 
 // Quadruped leg order shared by deer/fox: [front-left, front-right, back-left, back-right].
@@ -496,10 +511,24 @@ function buildBird(random: () => number): BirdBuild {
   const root = new THREE.Group();
   // Sized up from an early pass that read as near-invisible specks against
   // the sky — still a small silhouette, just one a rider can actually spot.
-  root.scale.setScalar(1.15 + random() * 0.85);
+  root.scale.setScalar(1.1 + random() * 0.7);
   const body = new THREE.Mesh(BIRD_BODY_GEOMETRY, BIRD_MATERIAL);
-  body.scale.set(0.045, 0.055, 0.16);
+  body.scale.set(0.042, 0.05, 0.2);
   root.add(body);
+
+  // A beak and a fanned tail turn the body from an anonymous blob into
+  // something with a clear front and back — cheap in triangles, but it's
+  // what makes the silhouette parse as "bird" rather than "flying rock".
+  const beak = new THREE.Mesh(BIRD_BEAK_GEOMETRY, BIRD_MATERIAL);
+  beak.rotation.x = -Math.PI / 2;
+  beak.position.z = -0.085;
+  root.add(beak);
+
+  const tail = new THREE.Mesh(BIRD_TAIL_GEOMETRY, BIRD_MATERIAL);
+  tail.rotation.x = Math.PI / 2;
+  tail.scale.set(1, 0.24, 1);
+  tail.position.z = 0.1;
+  root.add(tail);
 
   const wingL = new THREE.Group();
   wingL.position.set(-0.02, 0.02, 0);
@@ -597,6 +626,7 @@ export class WildlifeDirector {
   // existing encounter bookkeeping doesn't have to account for them.
   readonly ambientGroup = new THREE.Group();
   private ambientFlocks: FlockEncounter[] = [];
+  private ambientRespawnTimer = 0;
 
   constructor(world: EndlessWorld, random: () => number = Math.random) {
     this.group.name = "wildlife";
@@ -615,6 +645,7 @@ export class WildlifeDirector {
     this.encounters = [];
     for (const flock of this.ambientFlocks) this.ambientGroup.remove(flock.group);
     this.ambientFlocks = [];
+    this.ambientRespawnTimer = 0;
     this.spawnTimer = firstSpawnDelay(this.random);
   }
 
@@ -637,14 +668,16 @@ export class WildlifeDirector {
       if (flock.age >= flock.lifespan || behind > BEHIND_DESPAWN_DISTANCE) {
         this.ambientGroup.remove(flock.group);
         this.ambientFlocks.splice(i, 1);
+        this.ambientRespawnTimer = randomInRange(this.random, AMBIENT_RESPAWN_GAP.min, AMBIENT_RESPAWN_GAP.max);
       }
     }
 
+    this.ambientRespawnTimer -= dt;
     const target = AMBIENT_FLOCK_TARGET[this.quality];
     const wanted = nightAmount > AMBIENT_NIGHT_CUTOFF ? Math.max(0, target - 1) : target;
-    while (this.ambientFlocks.length < wanted) {
+    if (this.ambientFlocks.length < wanted && this.ambientRespawnTimer <= 0) {
       const distance = riderDistance + randomInRange(this.random, 18, 45);
-      const flock = this.createFlock(distance, flockSize(this.random, this.quality), true);
+      const flock = this.createFlock(distance, ambientFlockSize(this.random, this.quality), true);
       this.ambientFlocks.push(flock);
       this.ambientGroup.add(flock.group);
     }

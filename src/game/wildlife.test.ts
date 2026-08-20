@@ -250,14 +250,21 @@ describe("WildlifeDirector ambient flocks", () => {
     expect(director.group.children.length).toBeLessThanOrEqual(ENCOUNTER_CAPS.high);
   });
 
-  it("keeps replacing ambient flocks as they age out, over a long ride", () => {
+  it("keeps replacing ambient flocks over a long ride, but leaves a quiet gap between them rather than an instant swap", () => {
     const director = new WildlifeDirector(fakeWorld(), mulberry32(29));
     let distance = 0;
+    let sawFlock = false;
+    let sawGap = false;
     for (let i = 0; i < 3000; i += 1) {
       distance += 0.3;
       director.update(0.05, distance, 0);
+      const count = director.ambientGroup.children.length;
+      expect(count).toBeLessThanOrEqual(AMBIENT_FLOCK_TARGET.high);
+      if (count > 0) sawFlock = true;
+      else sawFlock && (sawGap = true);
     }
-    expect(director.ambientGroup.children.length).toBe(AMBIENT_FLOCK_TARGET.high);
+    expect(sawFlock).toBe(true);
+    expect(sawGap).toBe(true);
   });
 
   it("clears ambient flocks on reset and refills them on the next update", () => {
