@@ -2,14 +2,11 @@ import * as THREE from "three";
 
 const INK = new THREE.MeshStandardMaterial({ color: 0x18221f, roughness: 0.48, metalness: 0.35 });
 const FRAME = new THREE.MeshStandardMaterial({ color: 0xc55d3f, roughness: 0.42, metalness: 0.28 });
-const SKIN = new THREE.MeshStandardMaterial({ color: 0xc78963, roughness: 0.8 });
-const SHIRT = new THREE.MeshStandardMaterial({ color: 0xe7c86b, roughness: 0.75 });
 
 export class Bicycle {
   readonly group = new THREE.Group();
   private wheels: THREE.Group[] = [];
   private pedals = new THREE.Group();
-  private rider = new THREE.Group();
 
   constructor() {
     this.group.name = "bicycle";
@@ -20,7 +17,6 @@ export class Bicycle {
     this.group.rotation.z = lean;
     for (const wheel of this.wheels) wheel.rotation.x -= speed * 0.032;
     this.pedals.rotation.x = pedalTime * Math.min(speed * 0.85, 8);
-    this.rider.position.y = 0.025 * Math.sin(pedalTime * Math.min(speed, 6));
   }
 
   private build(): void {
@@ -47,28 +43,28 @@ export class Bicycle {
       tube(joints.frontTop, joints.frontHub, 0.042, INK),
     );
 
-    const seat = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.09, 0.18), INK);
+    const seat = new THREE.Mesh(new THREE.BoxGeometry(0.27, 0.065, 0.22), INK);
     seat.position.copy(joints.seat).add(new THREE.Vector3(0, 0.08, 0.05));
-    const handlebar = tube(new THREE.Vector3(-0.28, 1.68, -0.78), new THREE.Vector3(0.28, 1.68, -0.78), 0.028, INK);
-    this.group.add(seat, handlebar);
+    this.group.add(seat, tube(joints.frontTop, new THREE.Vector3(0, 1.67, -0.82), 0.026, INK));
+    this.addDropHandlebars();
 
     this.pedals.position.copy(joints.crank);
     const axle = tube(new THREE.Vector3(-0.23, 0, 0), new THREE.Vector3(0.23, 0, 0), 0.025, INK);
-    this.pedals.add(axle);
+    const chainring = new THREE.Mesh(new THREE.TorusGeometry(0.19, 0.018, 6, 28), INK);
+    chainring.rotation.y = Math.PI / 2;
+    this.pedals.add(axle, chainring);
     this.group.add(this.pedals);
 
-    this.rider.add(this.makeRider());
-    this.group.add(this.rider);
     this.group.scale.setScalar(0.86);
   }
 
   private makeWheel(radius: number): THREE.Group {
     const holder = new THREE.Group();
-    const tire = new THREE.Mesh(new THREE.TorusGeometry(radius, 0.055, 10, 42), INK);
+    const tire = new THREE.Mesh(new THREE.TorusGeometry(radius, 0.027, 8, 48), INK);
     tire.rotation.y = Math.PI / 2;
     holder.add(tire);
     const rimMaterial = new THREE.MeshStandardMaterial({ color: 0xcfd3cc, metalness: 0.65, roughness: 0.3 });
-    const rim = new THREE.Mesh(new THREE.TorusGeometry(radius * 0.88, 0.018, 6, 36), rimMaterial);
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(radius * 0.94, 0.012, 5, 48), rimMaterial);
     rim.rotation.y = Math.PI / 2;
     holder.add(rim);
     for (let i = 0; i < 10; i += 1) {
@@ -84,27 +80,30 @@ export class Bicycle {
     return holder;
   }
 
-  private makeRider(): THREE.Group {
-    const rider = new THREE.Group();
-    const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.25, 0.62, 5, 10), SHIRT);
-    torso.position.set(0, 2.05, 0.16);
-    torso.rotation.x = -0.42;
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 14, 10), SKIN);
-    head.position.set(0, 2.48, -0.17);
-    const helmet = new THREE.Mesh(
-      new THREE.SphereGeometry(0.235, 14, 8, 0, Math.PI * 2, 0, Math.PI * 0.58),
-      FRAME,
+  private addDropHandlebars(): void {
+    const center = new THREE.Vector3(0, 1.67, -0.82);
+    this.group.add(
+      tube(new THREE.Vector3(-0.34, 1.67, -0.82), new THREE.Vector3(0.34, 1.67, -0.82), 0.018, INK),
+      tube(center, new THREE.Vector3(0, 1.67, -0.72), 0.022, INK),
     );
-    helmet.position.copy(head.position).add(new THREE.Vector3(0, 0.05, 0));
-    rider.add(torso, head, helmet);
-    rider.add(
-      tube(new THREE.Vector3(-0.18, 2.16, -0.02), new THREE.Vector3(-0.25, 1.7, -0.75), 0.055, SKIN),
-      tube(new THREE.Vector3(0.18, 2.16, -0.02), new THREE.Vector3(0.25, 1.7, -0.75), 0.055, SKIN),
-      tube(new THREE.Vector3(-0.12, 1.82, 0.2), new THREE.Vector3(-0.16, 1.0, 0.02), 0.07, INK),
-      tube(new THREE.Vector3(0.12, 1.82, 0.2), new THREE.Vector3(0.16, 0.72, 0.12), 0.07, INK),
-    );
-    return rider;
+    for (const side of [-1, 1]) {
+      this.group.add(
+        tube(
+          new THREE.Vector3(side * 0.34, 1.67, -0.82),
+          new THREE.Vector3(side * 0.39, 1.51, -0.94),
+          0.018,
+          INK,
+        ),
+        tube(
+          new THREE.Vector3(side * 0.39, 1.51, -0.94),
+          new THREE.Vector3(side * 0.34, 1.35, -0.86),
+          0.018,
+          INK,
+        ),
+      );
+    }
   }
+
 }
 
 function tube(a: THREE.Vector3, b: THREE.Vector3, radius: number, material: THREE.Material): THREE.Mesh {
