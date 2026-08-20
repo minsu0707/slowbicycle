@@ -3,12 +3,17 @@ import * as THREE from "three";
 const INK = new THREE.MeshStandardMaterial({ color: 0x18221f, roughness: 0.48, metalness: 0.35 });
 const FRAME = new THREE.MeshStandardMaterial({ color: 0xc55d3f, roughness: 0.42, metalness: 0.28 });
 const METAL = new THREE.MeshStandardMaterial({ color: 0xb8bcb8, roughness: 0.3, metalness: 0.82 });
+const MODEL_SCALE = 0.86;
+const WHEEL_RADIUS = 0.98;
+const WHEEL_HUB_HEIGHT = 0.72;
 
 export class Bicycle {
   readonly group = new THREE.Group();
-  private readonly worldWheelRadius = 0.98 * 0.86;
+  // Small clearance keeps the tire surface above the road without visible floating.
+  readonly groundOffset = (WHEEL_RADIUS - WHEEL_HUB_HEIGHT) * MODEL_SCALE + 0.012;
+  private readonly worldWheelRadius = WHEEL_RADIUS * MODEL_SCALE;
   private wheels: THREE.Group[] = [];
-  private frontWheel?: THREE.Group;
+  private frontSteering?: THREE.Group;
   private steeringAngle = 0;
   private pedals = new THREE.Group();
   private crankAngle = 0;
@@ -16,6 +21,7 @@ export class Bicycle {
 
   constructor() {
     this.group.name = "bicycle";
+    this.group.rotation.order = "YXZ";
     this.build();
   }
 
@@ -25,7 +31,7 @@ export class Bicycle {
     for (const wheel of this.wheels) wheel.rotation.x -= wheelRotation;
     const targetSteering = -steering * Math.min(speed / 5, 1) * 0.09;
     this.steeringAngle += (targetSteering - this.steeringAngle) * (1 - Math.exp(-10 * dt));
-    if (this.frontWheel) this.frontWheel.rotation.y = this.steeringAngle;
+    if (this.frontSteering) this.frontSteering.rotation.y = this.steeringAngle;
     if (pedalStroke) this.crankTarget += Math.PI;
     if (pedaling && !pedalStroke) this.crankTarget += dt * (2.2 + speed * 0.38);
     this.crankAngle += (this.crankTarget - this.crankAngle) * (1 - Math.exp(-15 * dt));
@@ -33,20 +39,23 @@ export class Bicycle {
   }
 
   private build(): void {
-    const rear = this.makeWheel(0.98);
-    rear.position.set(0, 0.72, 1.05);
-    const front = this.makeWheel(0.98);
-    front.position.set(0, 0.72, -1.05);
-    this.frontWheel = front;
-    this.group.add(rear, front);
+    const rear = this.makeWheel(WHEEL_RADIUS);
+    rear.position.set(0, WHEEL_HUB_HEIGHT, 1.05);
+    const front = this.makeWheel(WHEEL_RADIUS);
+    const frontSteering = new THREE.Group();
+    frontSteering.name = "front-steering";
+    frontSteering.position.set(0, WHEEL_HUB_HEIGHT, -1.05);
+    frontSteering.add(front);
+    this.frontSteering = frontSteering;
+    this.group.add(rear, frontSteering);
     this.wheels.push(rear, front);
 
     const joints = {
       crank: new THREE.Vector3(0, 0.84, 0.05),
       seat: new THREE.Vector3(0, 1.55, 0.28),
       frontTop: new THREE.Vector3(0, 1.52, -0.72),
-      rearHub: new THREE.Vector3(0, 0.72, 1.05),
-      frontHub: new THREE.Vector3(0, 0.72, -1.05),
+      rearHub: new THREE.Vector3(0, WHEEL_HUB_HEIGHT, 1.05),
+      frontHub: new THREE.Vector3(0, WHEEL_HUB_HEIGHT, -1.05),
     };
     this.group.add(
       tube(joints.crank, joints.seat, 0.055, FRAME),
@@ -89,7 +98,7 @@ export class Bicycle {
     derailleur.rotation.x = -0.28;
     this.group.add(derailleur);
 
-    this.group.scale.setScalar(0.86);
+    this.group.scale.setScalar(MODEL_SCALE);
     this.group.traverse((object) => {
       if (object instanceof THREE.Mesh) object.castShadow = true;
     });

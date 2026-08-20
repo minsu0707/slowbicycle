@@ -466,8 +466,8 @@ export class EndlessWorld {
     const center = roadPoint(start + FAR_LENGTH / 2);
     const random = mulberry32(index * 7349 + 17);
 
-    group.add(this.makeRidge(center.x + (random() - 0.5) * 90, center.z - 200, 720, 0xcdb48f, 0xb0966c, random(), 30, 56));
-    group.add(this.makeRidge(center.x + (random() - 0.5) * 50, center.z - 90, 620, 0x6f8156, 0x455636, random(), 16, 32));
+    this.addSplitRidge(group, start + FAR_LENGTH / 2 + 200, 340, 95, 0xcdb48f, 0xb0966c, random(), 30, 56);
+    this.addSplitRidge(group, start + FAR_LENGTH / 2 + 90, 250, 62, 0x6f8156, 0x455636, random(), 16, 32);
 
     const hillCount = this.quality === "high" ? 3 : 2;
     for (let i = 0; i < hillCount; i += 1) {
@@ -501,6 +501,7 @@ export class EndlessWorld {
     seed: number,
     minHeight: number,
     maxHeight: number,
+    valleyEdge?: "left" | "right",
   ): THREE.Mesh {
     const segments = 18;
     const random = mulberry32(Math.floor(seed * 1_000_000) + 11);
@@ -517,7 +518,12 @@ export class EndlessWorld {
       const t = i / segments;
       const x = centerX - width / 2 + t * width;
       const wave = Math.sin(t * Math.PI * freq1 + phase1) * 0.5 + Math.sin(t * Math.PI * freq2 + phase2) * 0.25 + 0.5;
-      const height = minHeight + THREE.MathUtils.clamp(wave, 0, 1) * (maxHeight - minHeight);
+      let height = minHeight + THREE.MathUtils.clamp(wave, 0, 1) * (maxHeight - minHeight);
+      if (valleyEdge) {
+        const distanceFromValley = valleyEdge === "left" ? t : 1 - t;
+        const taper = THREE.MathUtils.smoothstep(distanceFromValley, 0, 0.3);
+        height = THREE.MathUtils.lerp(2, height, taper);
+      }
       positions.push(x, height, z);
       colors.push(top.r, top.g, top.b);
       positions.push(x, -20, z);
@@ -532,6 +538,26 @@ export class EndlessWorld {
     geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
     geometry.setIndex(indices);
     return new THREE.Mesh(geometry, this.hillMaterial);
+  }
+
+  private addSplitRidge(
+    group: THREE.Group,
+    distance: number,
+    sideWidth: number,
+    valleyHalfWidth: number,
+    colorTop: number,
+    colorBase: number,
+    seed: number,
+    minHeight: number,
+    maxHeight: number,
+  ): void {
+    const road = roadPoint(distance);
+    const z = road.z;
+    const offset = valleyHalfWidth + sideWidth / 2;
+    group.add(
+      this.makeRidge(road.x - offset, z, sideWidth, colorTop, colorBase, seed, minHeight, maxHeight, "right"),
+      this.makeRidge(road.x + offset, z, sideWidth, colorTop, colorBase, seed + 0.417, minHeight, maxHeight, "left"),
+    );
   }
 
   private makeHillMound(position: THREE.Vector3, radius: number): THREE.Mesh {

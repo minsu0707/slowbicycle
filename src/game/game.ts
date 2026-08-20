@@ -183,7 +183,7 @@ export class SlowBicycleGame {
     const road = this.world.sample(this.state.distance);
     this.roadRight.set(-road.tangent.z, 0, road.tangent.x).normalize();
     this.bikePosition.copy(road.position).addScaledVector(this.roadRight, this.state.lateral);
-    this.bikePosition.y += 0.07;
+    this.bikePosition.y += this.bicycle.groundOffset;
     this.bicycle.group.position.copy(this.bikePosition);
     // Physics uses positive heading for motion toward the road's right side,
     // while Three.js positive Y rotation turns a -Z-facing model to the left.
