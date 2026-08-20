@@ -124,13 +124,36 @@ export class EndlessWorld {
     transparent: true,
     depthWrite: false,
   });
+  private skyMaterial = new THREE.MeshBasicMaterial({
+    vertexColors: true,
+    side: THREE.BackSide,
+    fog: false,
+    depthWrite: false,
+  });
+  private starMaterial = new THREE.PointsMaterial({
+    color: 0xe8efff,
+    size: 0.72,
+    sizeAttenuation: true,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    depthTest: false,
+    fog: false,
+  });
   private sky: THREE.Mesh;
 
   constructor(scene: THREE.Scene) {
     this.group.name = "endless-world";
     scene.add(this.group);
     this.sky = this.buildSkyDome();
+    this.sky.add(this.buildStars());
     this.group.add(this.sky);
+  }
+
+  setAtmosphere(skyTint: number, starOpacity: number): void {
+    this.skyMaterial.color.setHex(skyTint);
+    this.starMaterial.opacity = THREE.MathUtils.clamp(starOpacity, 0, 1);
+    this.starMaterial.visible = this.starMaterial.opacity > 0.01;
   }
 
   setQuality(quality: "low" | "high"): void {
@@ -229,11 +252,31 @@ export class EndlessWorld {
       colors[i * 3 + 2] = mixed.b;
     }
     geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
-    const material = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false });
-    const mesh = new THREE.Mesh(geometry, material);
+    const mesh = new THREE.Mesh(geometry, this.skyMaterial);
     mesh.renderOrder = -10;
     mesh.name = "sky-dome";
     return mesh;
+  }
+
+  private buildStars(): THREE.Points {
+    const random = mulberry32(913_741);
+    const positions: number[] = [];
+    for (let i = 0; i < 520; i += 1) {
+      const azimuth = random() * Math.PI * 2;
+      const elevation = 0.08 + random() * Math.PI * 0.42;
+      const radius = 450 + random() * 8;
+      positions.push(
+        Math.cos(elevation) * Math.cos(azimuth) * radius,
+        Math.sin(elevation) * radius,
+        Math.cos(elevation) * Math.sin(azimuth) * radius,
+      );
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    const stars = new THREE.Points(geometry, this.starMaterial);
+    stars.name = "night-stars";
+    stars.renderOrder = -9;
+    return stars;
   }
 
   private makeChunk(index: number): THREE.Group {

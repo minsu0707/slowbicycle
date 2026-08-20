@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { RideAudio } from "./audio";
 import { Bicycle } from "./bike";
+import { sampleAtmosphere } from "./day-night";
 import { InputController } from "./input";
 import {
   DEFAULT_BIKE_STATE,
@@ -32,6 +33,7 @@ export class SlowBicycleGame {
   private elapsed = 0;
   private milestone = 1;
   private shadowTarget = new THREE.Object3D();
+  private skyLight = new THREE.HemisphereLight(0xb9ccdb, 0x43503c, 1.25);
   private sun = new THREE.DirectionalLight(0xffdfaa, 2.15);
   private sunDisc?: THREE.Mesh;
   private loopStarted = false;
@@ -43,8 +45,6 @@ export class SlowBicycleGame {
   private readonly rearGround = new THREE.Vector3();
   private readonly desiredCamera = new THREE.Vector3();
   private readonly lookAhead = new THREE.Vector3();
-  private readonly sunOffset = new THREE.Vector3(-38, 62, 24);
-  private readonly sunDiscOffset = new THREE.Vector3(-82, 55, -220);
 
   constructor(container: HTMLElement) {
     this.ui = new GameUI(container);
@@ -74,7 +74,6 @@ export class SlowBicycleGame {
   }
 
   private setupLights(): void {
-    const hemisphere = new THREE.HemisphereLight(0xb9ccdb, 0x43503c, 1.25);
     this.sun.position.set(-38, 62, 24);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(1024, 1024);
@@ -86,7 +85,7 @@ export class SlowBicycleGame {
     this.sun.shadow.camera.far = 110;
     this.sun.shadow.bias = -0.0002;
     this.sun.target = this.shadowTarget;
-    this.scene.add(hemisphere, this.sun, this.shadowTarget);
+    this.scene.add(this.skyLight, this.sun, this.shadowTarget);
 
     this.sunDisc = new THREE.Mesh(
       new THREE.SphereGeometry(7, 18, 12),
@@ -240,8 +239,38 @@ export class SlowBicycleGame {
     this.camera.fov = damp(this.camera.fov, this.settings.reduceMotion ? 60 : 60 + speedRatio * 6 + kickFov, 7, dt || 0.016);
     this.camera.updateProjectionMatrix();
     this.shadowTarget.position.copy(this.bikePosition);
-    this.sun.position.copy(this.bikePosition).add(this.sunOffset);
-    this.sunDisc?.position.copy(this.bikePosition).add(this.sunDiscOffset);
+    this.updateAtmosphere(elapsed);
+  }
+
+  private updateAtmosphere(elapsed: number): void {
+    const atmosphere = sampleAtmosphere(elapsed);
+    (this.scene.background as THREE.Color).setHex(atmosphere.background);
+    (this.scene.fog as THREE.FogExp2).color.setHex(atmosphere.fog);
+    this.renderer.toneMappingExposure = atmosphere.exposure;
+    this.skyLight.color.setHex(atmosphere.skyLight);
+    this.skyLight.groundColor.setHex(atmosphere.groundLight);
+    this.skyLight.intensity = atmosphere.ambientIntensity;
+    this.sun.color.setHex(atmosphere.sunColor);
+    this.sun.intensity = atmosphere.sunIntensity;
+    this.world.setAtmosphere(atmosphere.skyTint, atmosphere.starOpacity);
+
+    const lightRadius = 82;
+    const lightHeight = 8 + Math.max(0, atmosphere.sunElevation) * 72;
+    this.sun.position.set(
+      this.bikePosition.x + Math.cos(atmosphere.sunAzimuth) * lightRadius,
+      this.bikePosition.y + lightHeight,
+      this.bikePosition.z + Math.sin(atmosphere.sunAzimuth) * lightRadius,
+    );
+    if (this.sunDisc) {
+      const discRadius = 240;
+      this.sunDisc.position.set(
+        this.bikePosition.x + Math.cos(atmosphere.sunAzimuth) * discRadius,
+        this.bikePosition.y + atmosphere.sunElevation * 185,
+        this.bikePosition.z + Math.sin(atmosphere.sunAzimuth) * discRadius,
+      );
+      (this.sunDisc.material as THREE.MeshBasicMaterial).color.setHex(atmosphere.sunColor);
+      this.sunDisc.visible = atmosphere.sunElevation > -0.035;
+    }
   }
 
   private resize(): void {
