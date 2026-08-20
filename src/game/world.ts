@@ -13,6 +13,8 @@ export interface RoadSample {
   slope: number;
 }
 
+type PreloadJob = { kind: "near" | "far"; index: number };
+
 // Shared, reused materials — prop instances differ only by geometry/transform,
 // so every tree/rock/flower of a kind draws with the same material rather than
 // minting a fresh one per instance.
@@ -76,6 +78,9 @@ export class EndlessWorld {
   readonly group = new THREE.Group();
   private chunks = new Map<number, THREE.Group>();
   private farChunks = new Map<number, THREE.Group>();
+  private preloadQueue: PreloadJob[] = [];
+  private preloadKeys = new Set<string>();
+  private preloadHandle?: number;
   private quality: "low" | "high" = "high";
   private roadMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.98, vertexColors: true });
   private shoulderMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, vertexColors: true });
@@ -106,6 +111,7 @@ export class EndlessWorld {
 
   setQuality(quality: "low" | "high"): void {
     if (this.quality === quality) return;
+    this.cancelPreloads();
     this.quality = quality;
     for (const chunk of this.chunks.values()) this.disposeChunk(chunk);
     this.chunks.clear();
@@ -129,6 +135,7 @@ export class EndlessWorld {
         this.chunks.delete(index);
       }
     }
+    this.enqueuePreload({ kind: "near", index: current + ahead + 1 });
 
     // Backdrop scenery (ridgelines, hills, clouds) recycles on its own, coarser
     // grid so the horizon keeps refilling no matter how far the ride goes.
@@ -147,6 +154,7 @@ export class EndlessWorld {
         this.farChunks.delete(index);
       }
     }
+    this.enqueuePreload({ kind: "far", index: farCurrent + farAhead + 1 });
 
     // The sky dome is a single fixed-radius shell — recenter it under the rider
     // each frame so it always encloses the view instead of being outrun.
@@ -463,10 +471,14 @@ export class EndlessWorld {
 
     const hillCount = this.quality === "high" ? 3 : 2;
     for (let i = 0; i < hillCount; i += 1) {
-      const x = center.x + (random() - 0.5) * 460;
-      const z = center.z - 40 - random() * 60;
+      const distance = start + 35 + random() * (FAR_LENGTH - 70);
+      const sample = this.sample(distance);
+      const right = new THREE.Vector3(-sample.tangent.z, 0, sample.tangent.x).normalize();
+      const side = random() > 0.5 ? 1 : -1;
+      const position = sample.position.clone().addScaledVector(right, side * (90 + random() * 140));
       const radius = 10 + random() * 14;
-      group.add(this.makeHillMound(new THREE.Vector3(x, -radius * 0.25, z), radius));
+      position.y += terrainWave(position.x, position.z) - radius * 0.28 - 1;
+      group.add(this.makeHillMound(position, radius));
     }
 
     const cloudCount = this.quality === "high" ? 3 : 2;
@@ -545,6 +557,51 @@ export class EndlessWorld {
     }
     group.position.copy(position);
     return group;
+  }
+
+  private enqueuePreload(job: PreloadJob): void {
+    const chunks = job.kind === "near" ? this.chunks : this.farChunks;
+    const key = `${job.kind}:${job.index}`;
+    if (chunks.has(job.index) || this.preloadKeys.has(key)) return;
+    this.preloadQueue.push(job);
+    this.preloadKeys.add(key);
+    this.schedulePreload();
+  }
+
+  private schedulePreload(): void {
+    if (this.preloadHandle !== undefined || this.preloadQueue.length === 0) return;
+    const run = () => {
+      this.preloadHandle = undefined;
+      const job = this.preloadQueue.shift();
+      if (!job) return;
+      const key = `${job.kind}:${job.index}`;
+      const chunks = job.kind === "near" ? this.chunks : this.farChunks;
+      if (!chunks.has(job.index)) {
+        const chunk = job.kind === "near" ? this.makeChunk(job.index) : this.makeFarChunk(job.index);
+        chunks.set(job.index, chunk);
+        this.group.add(chunk);
+      }
+      this.preloadKeys.delete(key);
+      this.schedulePreload();
+    };
+
+    const idleApi = window as unknown as {
+      requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number;
+    };
+    this.preloadHandle = idleApi.requestIdleCallback
+      ? idleApi.requestIdleCallback(run, { timeout: 700 })
+      : window.setTimeout(run, 16);
+  }
+
+  private cancelPreloads(): void {
+    if (this.preloadHandle !== undefined) {
+      const idleApi = window as unknown as { cancelIdleCallback?: (handle: number) => void };
+      if (idleApi.cancelIdleCallback) idleApi.cancelIdleCallback(this.preloadHandle);
+      else window.clearTimeout(this.preloadHandle);
+    }
+    this.preloadHandle = undefined;
+    this.preloadQueue = [];
+    this.preloadKeys.clear();
   }
 
   private disposeChunk(chunk: THREE.Group): void {

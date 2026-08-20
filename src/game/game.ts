@@ -188,7 +188,8 @@ export class SlowBicycleGame {
     // Physics uses positive heading for motion toward the road's right side,
     // while Three.js positive Y rotation turns a -Z-facing model to the left.
     this.bicycle.group.rotation.y = road.yaw - this.state.heading;
-    this.bicycle.group.rotation.x = -Math.atan(road.slope);
+    // The model faces local -Z; positive X pitch raises its front wheel.
+    this.bicycle.group.rotation.x = Math.atan(road.slope);
 
     const speedRatio = Math.min(this.state.speed / 13, 1);
     const distance = 7.2 + speedRatio * 2.8 + this.cameraKick * 0.55;
