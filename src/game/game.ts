@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { RideAudio } from "./audio";
 import { Bicycle } from "./bike";
-import { sampleAtmosphere } from "./day-night";
+import { sampleAtmosphere, type AtmosphereState } from "./day-night";
 import { InputController } from "./input";
 import {
   DEFAULT_BIKE_STATE,
@@ -13,6 +13,7 @@ import {
 } from "./physics";
 import { loadBestDistance, saveBestDistance } from "./storage";
 import { GameUI, type Settings } from "./ui";
+import { WildlifeDirector } from "./wildlife";
 import { EndlessWorld } from "./world";
 
 type GameMode = "title" | "riding" | "paused";
@@ -23,6 +24,7 @@ export class SlowBicycleGame {
   private camera = new THREE.PerspectiveCamera(60, 1, 0.1, 650);
   private clock = new THREE.Clock();
   private world: EndlessWorld;
+  private wildlife: WildlifeDirector;
   private bicycle = new Bicycle();
   private input = new InputController();
   private audio = new RideAudio();
@@ -62,6 +64,8 @@ export class SlowBicycleGame {
     this.scene.background = new THREE.Color(0xe5b979);
     this.scene.fog = new THREE.FogExp2(0xd4b17b, 0.0065);
     this.world = new EndlessWorld(this.scene);
+    this.wildlife = new WildlifeDirector(this.world);
+    this.scene.add(this.wildlife.group);
     this.scene.add(this.bicycle.group);
     this.setupLights();
     this.bindUI();
@@ -147,12 +151,14 @@ export class SlowBicycleGame {
     this.state = { ...DEFAULT_BIKE_STATE };
     this.elapsed = 0;
     this.milestone = 1;
+    this.wildlife.reset();
     this.resume();
   }
 
   private applySettings(settings: Settings): void {
     this.settings = settings;
     this.world?.setQuality(settings.quality);
+    this.wildlife?.setQuality(settings.quality);
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, settings.quality === "high" ? 1.5 : 1));
     this.renderer.shadowMap.enabled = settings.quality === "high";
     this.sun.castShadow = settings.quality === "high";
@@ -162,6 +168,7 @@ export class SlowBicycleGame {
 
   private frame(): void {
     const dt = Math.min(this.clock.getDelta(), 0.05);
+    let atmosphere: AtmosphereState | undefined;
     if (this.mode === "riding") {
       const controls = this.input.sample(dt);
       const pedalStroke = this.input.consumePedalStroke();
@@ -175,6 +182,8 @@ export class SlowBicycleGame {
       this.state = recoveredState;
       this.elapsed += dt;
       this.world.update(this.state.distance);
+      atmosphere = sampleAtmosphere(this.elapsed);
+      this.wildlife.update(dt, this.state.distance, atmosphere.starOpacity);
       this.bicycle.update(this.state.speed, this.state.lean, controls.steer, dt, controls.pedal > 0, pedalStroke);
       this.audio.update(this.state.speed, controls.pedal, dt);
       this.ui.update(speedKmh(this.state.speed), this.state.distance, this.state.stamina);
@@ -186,11 +195,11 @@ export class SlowBicycleGame {
         this.milestone += 1;
       }
     }
-    this.updateScene(dt, this.elapsed);
+    this.updateScene(dt, this.elapsed, atmosphere);
     this.renderer.render(this.scene, this.camera);
   }
 
-  private updateScene(dt: number, elapsed: number): void {
+  private updateScene(dt: number, elapsed: number, atmosphere = sampleAtmosphere(elapsed)): void {
     const road = this.world.sample(this.state.distance);
     this.roadRight.set(-road.tangent.z, 0, road.tangent.x).normalize();
     this.bikePosition.copy(road.position).addScaledVector(this.roadRight, this.state.lateral);
@@ -239,11 +248,10 @@ export class SlowBicycleGame {
     this.camera.fov = damp(this.camera.fov, this.settings.reduceMotion ? 60 : 60 + speedRatio * 6 + kickFov, 7, dt || 0.016);
     this.camera.updateProjectionMatrix();
     this.shadowTarget.position.copy(this.bikePosition);
-    this.updateAtmosphere(elapsed);
+    this.updateAtmosphere(atmosphere);
   }
 
-  private updateAtmosphere(elapsed: number): void {
-    const atmosphere = sampleAtmosphere(elapsed);
+  private updateAtmosphere(atmosphere: AtmosphereState): void {
     (this.scene.background as THREE.Color).setHex(atmosphere.background);
     (this.scene.fog as THREE.FogExp2).color.setHex(atmosphere.fog);
     this.renderer.toneMappingExposure = atmosphere.exposure;
