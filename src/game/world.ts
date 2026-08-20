@@ -239,7 +239,7 @@ export class EndlessWorld {
       }
       if (i < SEGMENTS) {
         const a = i * 2;
-        indices.push(a, a + 2, a + 1, a + 2, a + 3, a + 1);
+        indices.push(a, a + 1, a + 2, a + 2, a + 1, a + 3);
       }
     }
     const geometry = new THREE.BufferGeometry();
@@ -287,7 +287,7 @@ export class EndlessWorld {
     for (let z = 0; z < along; z += 1) {
       for (let x = 0; x < across; x += 1) {
         const a = z * (across + 1) + x;
-        indices.push(a, a + across + 1, a + 1, a + 1, a + across + 1, a + across + 2);
+        indices.push(a, a + 1, a + across + 1, a + 1, a + across + 2, a + across + 1);
       }
     }
     const geometry = new THREE.BufferGeometry();
@@ -512,7 +512,7 @@ export class EndlessWorld {
       colors.push(base.r, base.g, base.b);
       if (i < segments) {
         const a = i * 2;
-        indices.push(a, a + 2, a + 1, a + 2, a + 3, a + 1);
+        indices.push(a, a + 1, a + 2, a + 2, a + 1, a + 3);
       }
     }
     const geometry = new THREE.BufferGeometry();

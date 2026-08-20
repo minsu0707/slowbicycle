@@ -60,6 +60,7 @@ export class SlowBicycleGame {
     this.resize();
     this.world.update(0);
     this.updateScene(0, 0);
+    this.renderer.render(this.scene, this.camera);
     window.addEventListener("resize", () => this.resize());
   }
 

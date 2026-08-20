@@ -55,6 +55,7 @@ export class GameUI {
   showRiding(): void {
     this.title.classList.add("is-hidden");
     this.pause.classList.add("is-hidden");
+    this.hud.classList.remove("is-hidden");
     this.root.classList.add("is-riding");
   }
 
@@ -140,7 +141,7 @@ function markup(settings: Settings): string {
       <p class="best-distance"><span>best</span> <b id="best-value">0.00 km</b></p>
     </section>
 
-    <section id="ride-hud" class="hud" aria-live="polite">
+    <section id="ride-hud" class="hud is-hidden" aria-live="polite">
       <div class="speedometer"><strong id="speed-value">00</strong><span>km/h</span></div>
       <div class="distance"><span>distance</span> <b id="distance-value">0.00</b> km</div>
       <div class="stamina" aria-label="페달 여유"><i id="stamina-fill"></i></div>
