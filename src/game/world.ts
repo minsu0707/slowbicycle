@@ -107,7 +107,11 @@ const BUSH_MATERIALS = [
   new THREE.MeshStandardMaterial({ color: 0x5e7a44, roughness: 1, flatShading: true }),
   new THREE.MeshStandardMaterial({ color: 0x4c6a3c, roughness: 1, flatShading: true }),
 ];
-const ROCK_MATERIAL = new THREE.MeshStandardMaterial({ color: 0x8e887a, roughness: 1, flatShading: true });
+// Vertex-tinted rather than flat: a mossy base fading to dry stone at the
+// top reads as a rock actually sitting in the grass, not a pasted-in prop.
+const ROCK_MATERIAL = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, flatShading: true, vertexColors: true });
+const ROCK_DRY_TOP = new THREE.Color(0x9a9484);
+const ROCK_MOSS_BASE = new THREE.Color(0x5c6e3f);
 const HAY_MATERIAL = new THREE.MeshStandardMaterial({ color: 0xd6b153, roughness: 1, flatShading: true });
 const LOG_BARK_MATERIAL = new THREE.MeshStandardMaterial({ color: 0x5a4530, roughness: 1, flatShading: true });
 const LOG_CUT_MATERIAL = new THREE.MeshStandardMaterial({ color: 0xc9a877, roughness: 0.9, flatShading: true });
@@ -419,6 +423,7 @@ export class EndlessWorld {
     chunk.add(this.makeProps(index, start));
     chunk.add(this.makeGroundDetail(index, start));
     chunk.add(this.makeFence(index, start));
+    chunk.add(this.makeHedge(index, start));
     chunk.add(this.makeLamppost(index, start));
     chunk.add(this.makeSettlement(index, start));
     const mist = this.makeMist(index, start);
@@ -570,7 +575,9 @@ export class EndlessWorld {
       } else if (roll < 0.71) {
         prop = makeBush(0.8 + random() * 0.9, random());
       } else if (roll < 0.81) {
-        const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(0.45 + random() * 0.8, 0), ROCK_MATERIAL);
+        const rockGeometry = new THREE.DodecahedronGeometry(0.45 + random() * 0.8, 0);
+        paintByHeight(rockGeometry, ROCK_DRY_TOP, ROCK_MOSS_BASE);
+        const rock = new THREE.Mesh(rockGeometry, ROCK_MATERIAL);
         rock.scale.y = 0.5 + random() * 0.2;
         rock.castShadow = true;
         prop = rock;
@@ -592,32 +599,51 @@ export class EndlessWorld {
     const group = new THREE.Group();
     if (this.quality !== "high") return group;
     const random = mulberry32(index * 51737 + 5);
-    const count = 9;
-    for (let i = 0; i < count; i += 1) {
-      const s = start + random() * CHUNK_LENGTH;
+    const addTuft = (s: number, offset: number, bloomChance: number, scale: number) => {
+      if (isLandmarkClearing(s, offset)) return;
       const sample = this.sample(s);
-      const side = random() > 0.5 ? 1 : -1;
       const right = new THREE.Vector3(-sample.tangent.z, 0, sample.tangent.x).normalize();
-      const offset = side * (ROAD_HALF_WIDTH + 0.5 + random() * 3.5);
-      if (isLandmarkClearing(s, offset)) continue;
       const position = sample.position.clone().addScaledVector(right, offset);
       position.y = groundHeight(s, offset) - 0.03;
 
       const tuft = new THREE.Group();
-      const stem = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.24, 5), STEM_MATERIAL);
-      stem.position.y = 0.12;
+      const stem = new THREE.Mesh(new THREE.ConeGeometry(0.05 * scale, 0.24 * scale, 5), STEM_MATERIAL);
+      stem.position.y = 0.12 * scale;
       tuft.add(stem);
-      if (random() > 0.45) {
+      if (random() < bloomChance) {
         const bloom = new THREE.Mesh(
-          new THREE.ConeGeometry(0.045, 0.09, 5),
+          new THREE.ConeGeometry(0.045 * scale, 0.09 * scale, 5),
           BLOOM_MATERIALS[Math.floor(random() * BLOOM_MATERIALS.length)],
         );
-        bloom.position.y = 0.26;
+        bloom.position.y = 0.26 * scale;
         tuft.add(bloom);
       }
       tuft.position.copy(position);
       tuft.rotation.y = random() * Math.PI * 2;
       group.add(tuft);
+    };
+
+    // Loosely scattered tufts along the whole shoulder — the baseline cover.
+    const count = 20;
+    for (let i = 0; i < count; i += 1) {
+      const s = start + random() * CHUNK_LENGTH;
+      const side = random() > 0.5 ? 1 : -1;
+      const offset = side * (ROAD_HALF_WIDTH + 0.5 + random() * 3.5);
+      addTuft(s, offset, 0.55, 0.85 + random() * 0.4);
+    }
+
+    // A dense little wildflower patch, tightly packed — an occasional bright,
+    // "someone tends this verge" moment rather than uniformly thin cover.
+    if (random() < 0.5) {
+      const patchCenter = start + random() * CHUNK_LENGTH;
+      const patchSide = random() > 0.5 ? 1 : -1;
+      const patchOffset = patchSide * (ROAD_HALF_WIDTH + 0.8 + random() * 3);
+      const patchSize = 10 + Math.floor(random() * 8);
+      for (let i = 0; i < patchSize; i += 1) {
+        const s = patchCenter + (random() - 0.5) * 4;
+        const offset = patchOffset + (random() - 0.5) * 3;
+        addTuft(s, offset, 0.8, 0.7 + random() * 0.5);
+      }
     }
     return group;
   }
@@ -653,6 +679,34 @@ export class EndlessWorld {
         group.add(rail);
       }
       previous = position;
+    }
+    return group;
+  }
+
+  /**
+   * A dense, edge-to-edge hedgerow — the "someone tends this verge" cousin
+   * of the loose scattered bushes in `makeProps`. Independent of `makeFence`
+   * (its own seed, its own probability), so a stretch can have a fence, a
+   * hedge, both, or neither.
+   */
+  private makeHedge(index: number, start: number): THREE.Group {
+    const group = new THREE.Group();
+    if (this.quality !== "high") return group;
+    const random = mulberry32(index * 41387 + 17);
+    if (random() > 0.3) return group;
+    const side = random() > 0.5 ? 1 : -1;
+    const gap = 1.55;
+    for (let s = start + random() * gap; s < start + CHUNK_LENGTH - 2; s += gap) {
+      const sample = this.sample(s);
+      const right = new THREE.Vector3(-sample.tangent.z, 0, sample.tangent.x).normalize();
+      const offset = side * (ROAD_HALF_WIDTH + 2.3 + Math.sin(s * 0.35) * 0.35);
+      if (isLandmarkClearing(s, offset)) continue;
+      const position = sample.position.clone().addScaledVector(right, offset);
+      position.y = groundHeight(s, offset) - 0.05;
+      const bush = makeBush(0.7 + random() * 0.3, random());
+      bush.position.copy(position);
+      bush.rotation.y = random() * Math.PI * 2;
+      group.add(bush);
     }
     return group;
   }
