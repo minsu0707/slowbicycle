@@ -9,8 +9,7 @@ const WHEEL_HUB_HEIGHT = 0.72;
 
 export class Bicycle {
   readonly group = new THREE.Group();
-  // Small clearance keeps the tire surface above the road without visible floating.
-  readonly groundOffset = (WHEEL_RADIUS - WHEEL_HUB_HEIGHT) * MODEL_SCALE + 0.012;
+  readonly wheelbase = 2.1 * MODEL_SCALE;
   private readonly worldWheelRadius = WHEEL_RADIUS * MODEL_SCALE;
   private wheels: THREE.Group[] = [];
   private frontSteering?: THREE.Group;
@@ -36,6 +35,11 @@ export class Bicycle {
     if (pedaling && !pedalStroke) this.crankTarget += dt * (2.2 + speed * 0.38);
     this.crankAngle += (this.crankTarget - this.crankAngle) * (1 - Math.exp(-15 * dt));
     this.pedals.rotation.x = this.crankAngle;
+  }
+
+  groundOffsetAtPitch(pitch: number): number {
+    // Small clearance keeps the tire surface above the ground without visible floating.
+    return this.worldWheelRadius - WHEEL_HUB_HEIGHT * MODEL_SCALE * Math.cos(pitch) + 0.012;
   }
 
   private build(): void {

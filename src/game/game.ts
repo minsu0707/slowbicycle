@@ -32,6 +32,8 @@ export class SlowBicycleGame {
   private cameraKick = 0;
   private readonly roadRight = new THREE.Vector3();
   private readonly bikePosition = new THREE.Vector3();
+  private readonly frontGround = new THREE.Vector3();
+  private readonly rearGround = new THREE.Vector3();
   private readonly desiredCamera = new THREE.Vector3();
   private readonly lookAhead = new THREE.Vector3();
   private readonly sunOffset = new THREE.Vector3(-38, 62, 24);
@@ -58,7 +60,7 @@ export class SlowBicycleGame {
     this.bindUI();
     this.ui.updateBest(this.bestDistance);
     this.resize();
-    this.world.update(0);
+    this.world.update(this.state.distance);
     this.updateScene(0, 0);
     this.renderer.render(this.scene, this.camera);
     window.addEventListener("resize", () => this.resize());
@@ -183,13 +185,33 @@ export class SlowBicycleGame {
     const road = this.world.sample(this.state.distance);
     this.roadRight.set(-road.tangent.z, 0, road.tangent.x).normalize();
     this.bikePosition.copy(road.position).addScaledVector(this.roadRight, this.state.lateral);
-    this.bikePosition.y += this.bicycle.groundOffset;
+    const halfWheelbase = this.bicycle.wheelbase * 0.5;
+    const longitudinalOffset = Math.cos(this.state.heading) * halfWheelbase;
+    const lateralOffset = Math.sin(this.state.heading) * halfWheelbase;
+    this.world.groundPosition(
+      this.state.distance + longitudinalOffset,
+      this.state.lateral + lateralOffset,
+      this.frontGround,
+    );
+    this.world.groundPosition(
+      this.state.distance - longitudinalOffset,
+      this.state.lateral - lateralOffset,
+      this.rearGround,
+    );
+    const contactDistance = Math.max(
+      0.001,
+      Math.hypot(this.frontGround.x - this.rearGround.x, this.frontGround.z - this.rearGround.z),
+    );
+    const pitch = Math.atan2(this.frontGround.y - this.rearGround.y, contactDistance);
+    this.bikePosition.y =
+      (this.frontGround.y + this.rearGround.y) * 0.5 + this.bicycle.groundOffsetAtPitch(pitch);
     this.bicycle.group.position.copy(this.bikePosition);
     // Physics uses positive heading for motion toward the road's right side,
     // while Three.js positive Y rotation turns a -Z-facing model to the left.
     this.bicycle.group.rotation.y = road.yaw - this.state.heading;
-    // The model faces local -Z; positive X pitch raises its front wheel.
-    this.bicycle.group.rotation.x = Math.atan(road.slope);
+    // Sample both tire contact points: when steering diagonally, the wheels sit
+    // at different longitudinal and lateral ground positions.
+    this.bicycle.group.rotation.x = pitch;
 
     const speedRatio = Math.min(this.state.speed / 13, 1);
     const distance = 7.2 + speedRatio * 2.8 + this.cameraKick * 0.55;

@@ -13,6 +13,30 @@ export interface RoadSample {
   slope: number;
 }
 
+const SHOULDER_HALF_WIDTH = ROAD_HALF_WIDTH + 0.8;
+
+/** Height of the visible riding surface at a road-relative position. */
+export function groundHeight(distance: number, lateral: number): number {
+  const center = roadPoint(distance);
+  const absoluteLateral = Math.abs(lateral);
+  if (absoluteLateral <= ROAD_HALF_WIDTH) return center.y;
+  if (absoluteLateral <= SHOULDER_HALF_WIDTH) return center.y - 0.055;
+
+  return terrainHeight(distance, lateral);
+}
+
+/** Terrain stays slightly below the road until it clears the shoulder. */
+function terrainHeight(distance: number, lateral: number): number {
+  const center = roadPoint(distance);
+  const absoluteLateral = Math.abs(lateral);
+  const tangent = roadPoint(distance + 0.5).sub(center).normalize();
+  const side = new THREE.Vector3(-tangent.z, 0, tangent.x).normalize();
+  const point = center.clone().addScaledVector(side, lateral);
+  const terrainBlend = THREE.MathUtils.smoothstep(absoluteLateral, SHOULDER_HALF_WIDTH, 15);
+  const edgeDrop = -1.2 * THREE.MathUtils.clamp((absoluteLateral - SHOULDER_HALF_WIDTH) / 30.5, 0, 1);
+  return center.y + edgeDrop + terrainWave(point.x, point.z) * terrainBlend - 0.12;
+}
+
 type PreloadJob = { kind: "near" | "far"; index: number };
 
 // Shared, reused materials — prop instances differ only by geometry/transform,
@@ -175,6 +199,14 @@ export class EndlessWorld {
     };
   }
 
+  groundPosition(distance: number, lateral: number, target: THREE.Vector3): THREE.Vector3 {
+    const sample = this.sample(distance);
+    const side = new THREE.Vector3(-sample.tangent.z, 0, sample.tangent.x).normalize();
+    target.copy(sample.position).addScaledVector(side, lateral);
+    target.y = groundHeight(distance, lateral);
+    return target;
+  }
+
   roadHalfWidth(): number {
     return ROAD_HALF_WIDTH;
   }
@@ -208,7 +240,7 @@ export class EndlessWorld {
     const chunk = new THREE.Group();
     chunk.name = `road-chunk-${index}`;
     const start = index * CHUNK_LENGTH;
-    chunk.add(this.makeStrip(start, ROAD_HALF_WIDTH + 0.8, this.shoulderMaterial, -0.055, shoulderColor));
+    chunk.add(this.makeStrip(start, SHOULDER_HALF_WIDTH, this.shoulderMaterial, -0.055, shoulderColor));
     chunk.add(this.makeStrip(start, ROAD_HALF_WIDTH, this.roadMaterial, 0, (distance) => roadColor(distance)));
     chunk.add(this.makeTerrain(start));
     chunk.add(this.makeRoadDetails(start));
@@ -262,9 +294,13 @@ export class EndlessWorld {
   }
 
   private makeTerrain(start: number): THREE.Mesh {
-    const across = this.quality === "high" ? 12 : 6;
     const along = this.quality === "high" ? 30 : 16;
-    const width = 150;
+    // Keep vertices at both shoulder edges so the terrain cannot interpolate
+    // upward through the road while crossing it diagonally.
+    const offsets = this.quality === "high"
+      ? [-75, -55, -38, -25, -16, -10, -6, -SHOULDER_HALF_WIDTH, 0, SHOULDER_HALF_WIDTH, 6, 10, 16, 25, 38, 55, 75]
+      : [-75, -35, -12, -SHOULDER_HALF_WIDTH, 0, SHOULDER_HALF_WIDTH, 12, 35, 75];
+    const across = offsets.length - 1;
     const positions: number[] = [];
     const colors: number[] = [];
     const indices: number[] = [];
@@ -275,10 +311,9 @@ export class EndlessWorld {
       const tangent = roadPoint(s + 1).sub(center).normalize();
       const side = new THREE.Vector3(-tangent.z, 0, tangent.x).normalize();
       for (let x = 0; x <= across; x += 1) {
-        const offset = (x / across - 0.5) * width;
+        const offset = offsets[x];
         const point = center.clone().addScaledVector(side, offset);
-        const edgeDrop = Math.min(Math.abs(offset) / 34, 1) * -1.2;
-        point.y += edgeDrop + terrainWave(point.x, point.z) * Math.min(Math.abs(offset) / 12, 1) - 0.12;
+        point.y = terrainHeight(s, offset);
         positions.push(point.x, point.y, point.z);
 
         const grassMix = seededNoise(Math.floor(point.x * 0.04), Math.floor(point.z * 0.04));
