@@ -61,7 +61,27 @@ const BUSH_MATERIALS = [
   new THREE.MeshStandardMaterial({ color: 0x4c6a3c, roughness: 1, flatShading: true }),
 ];
 const ROCK_MATERIAL = new THREE.MeshStandardMaterial({ color: 0x8e887a, roughness: 1, flatShading: true });
+const HAY_MATERIAL = new THREE.MeshStandardMaterial({ color: 0xd6b153, roughness: 1, flatShading: true });
+const LOG_BARK_MATERIAL = new THREE.MeshStandardMaterial({ color: 0x5a4530, roughness: 1, flatShading: true });
+const LOG_CUT_MATERIAL = new THREE.MeshStandardMaterial({ color: 0xc9a877, roughness: 0.9, flatShading: true });
 const FENCE_MATERIAL = new THREE.MeshStandardMaterial({ color: 0x7c5a3d, roughness: 1 });
+// A far, occasional cluster of buildings — the design doc's stretch goal of
+// "a town can show up too" — kept low-poly and warm-toned to match everything
+// else roadside rather than reading as a foreign asset.
+const BUILDING_WALL_MATERIALS = [
+  new THREE.MeshStandardMaterial({ color: 0xe7dcc2, roughness: 0.95, flatShading: true }),
+  new THREE.MeshStandardMaterial({ color: 0xcf9a6d, roughness: 0.95, flatShading: true }),
+  new THREE.MeshStandardMaterial({ color: 0xb7c2b0, roughness: 0.95, flatShading: true }),
+  new THREE.MeshStandardMaterial({ color: 0xd8c3a5, roughness: 0.95, flatShading: true }),
+];
+const BUILDING_ROOF_MATERIALS = [
+  new THREE.MeshStandardMaterial({ color: 0x8f3f34, roughness: 0.9, flatShading: true }),
+  new THREE.MeshStandardMaterial({ color: 0x4a4640, roughness: 0.9, flatShading: true }),
+  new THREE.MeshStandardMaterial({ color: 0x6d5138, roughness: 0.9, flatShading: true }),
+];
+const SILO_MATERIAL = new THREE.MeshStandardMaterial({ color: 0xb9c0c2, roughness: 0.55, metalness: 0.15 });
+const SILO_CAP_MATERIAL = new THREE.MeshStandardMaterial({ color: 0x8f9a9c, roughness: 0.5, metalness: 0.2 });
+const WINDMILL_MATERIAL = new THREE.MeshStandardMaterial({ color: 0xefe9dc, roughness: 0.7 });
 const LAMP_POLE_MATERIAL = new THREE.MeshStandardMaterial({ color: 0x2c2620, roughness: 0.8, metalness: 0.2 });
 const LAMP_GLOW_MATERIAL = new THREE.MeshBasicMaterial({ color: 0xffdca0, fog: false });
 const STEM_MATERIAL = new THREE.MeshStandardMaterial({ color: 0x5c7a4a, roughness: 1 });
@@ -300,6 +320,7 @@ export class EndlessWorld {
     chunk.add(this.makeGroundDetail(index, start));
     chunk.add(this.makeFence(index, start));
     chunk.add(this.makeLamppost(index, start));
+    chunk.add(this.makeSettlement(index, start));
     const mist = this.makeMist(index, start);
     if (mist) chunk.add(mist);
     return chunk;
@@ -420,19 +441,27 @@ export class EndlessWorld {
       if (isLandmarkClearing(s, offset)) continue;
       const right = new THREE.Vector3(-sample.tangent.z, 0, sample.tangent.x).normalize();
       const position = sample.position.clone().addScaledVector(right, offset);
-      position.y += terrainWave(position.x, position.z) - 0.05;
+      // Anchor to the same blended ground the visible terrain mesh uses —
+      // adding the raw, unblended wave here (as this used to) floats or buries
+      // a prop relative to the surface it should be standing on, most visible
+      // on anything drawn as a continuous run (a fence rail, a hedge line).
+      position.y = groundHeight(s, offset) - 0.05;
 
       const roll = random();
       let prop: THREE.Object3D;
-      if (roll < 0.5) {
+      if (roll < 0.44) {
         prop = makeTree(0.7 + random() * 1.4, random());
-      } else if (roll < 0.72) {
+      } else if (roll < 0.62) {
         prop = makeBush(0.8 + random() * 0.9, random());
-      } else {
+      } else if (roll < 0.74) {
         const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(0.45 + random() * 0.8, 0), ROCK_MATERIAL);
         rock.scale.y = 0.5 + random() * 0.2;
         rock.castShadow = true;
         prop = rock;
+      } else if (roll < 0.87) {
+        prop = makeHayBale(0.55 + random() * 0.25);
+      } else {
+        prop = makeLog(1.4 + random() * 1.3, random());
       }
       prop.position.copy(position);
       prop.rotation.y = random() * Math.PI * 2;
@@ -456,7 +485,7 @@ export class EndlessWorld {
       const offset = side * (ROAD_HALF_WIDTH + 0.5 + random() * 3.5);
       if (isLandmarkClearing(s, offset)) continue;
       const position = sample.position.clone().addScaledVector(right, offset);
-      position.y += terrainWave(position.x, position.z) - 0.03;
+      position.y = groundHeight(s, offset) - 0.03;
 
       const tuft = new THREE.Group();
       const stem = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.24, 5), STEM_MATERIAL);
@@ -495,7 +524,7 @@ export class EndlessWorld {
         continue;
       }
       const position = sample.position.clone().addScaledVector(right, offset);
-      position.y += terrainWave(position.x, position.z);
+      position.y = groundHeight(s, offset);
 
       const post = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.62, 0.06), FENCE_MATERIAL);
       post.position.copy(position).add(new THREE.Vector3(0, 0.31, 0));
@@ -527,7 +556,7 @@ export class EndlessWorld {
     const sample = this.sample(s);
     const right = new THREE.Vector3(-sample.tangent.z, 0, sample.tangent.x).normalize();
     const position = sample.position.clone().addScaledVector(right, offset);
-    position.y += terrainWave(position.x, position.z);
+    position.y = groundHeight(s, offset);
 
     const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.045, 2.6, 6), LAMP_POLE_MATERIAL);
     pole.position.set(0, 1.3, 0);
@@ -535,6 +564,60 @@ export class EndlessWorld {
     glow.position.set(0, 2.65, 0);
     group.add(pole, glow);
     group.position.copy(position);
+    return group;
+  }
+
+  /**
+   * A small farm/village cluster, set well back from the shoulder so it reads
+   * as a distant settlement rather than crowding the ride — a rare beat
+   * (~1 in 16 chunks) meant to break up long stretches of pure countryside.
+   */
+  private makeSettlement(index: number, start: number): THREE.Group {
+    const group = new THREE.Group();
+    if (this.quality !== "high") return group;
+    const random = mulberry32(index * 81103 + 61);
+    if (random() > 0.065) return group;
+
+    const side = random() > 0.5 ? 1 : -1;
+    const centerDistance = start + 25 + random() * (CHUNK_LENGTH - 50);
+    const centerOffset = side * (48 + random() * 30);
+    if (isLandmarkClearing(centerDistance, centerOffset)) return group;
+    const sample = this.sample(centerDistance);
+    const right = new THREE.Vector3(-sample.tangent.z, 0, sample.tangent.x).normalize();
+
+    // `right` is fixed at the cluster's centre rather than resampled per
+    // building — the jitter radius is small enough relative to the road's
+    // curvature that the approximation doesn't show, and it keeps every
+    // building in the cluster on a shared, consistent ground frame.
+    const place = (alongJitter: number, lateralJitter: number): THREE.Vector3 => {
+      const s = centerDistance + alongJitter;
+      const lateral = centerOffset + lateralJitter;
+      const point = roadPoint(s).addScaledVector(right, lateral);
+      point.y = groundHeight(s, lateral);
+      return point;
+    };
+
+    const buildingCount = 3 + Math.floor(random() * 4);
+    for (let i = 0; i < buildingCount; i += 1) {
+      const position = place((random() - 0.5) * 26, (random() - 0.5) * 22);
+      const house = makeHouse(random);
+      house.position.copy(position);
+      house.rotation.y = random() * Math.PI * 2;
+      group.add(house);
+    }
+    if (random() > 0.4) {
+      const siloPosition = place((random() - 0.5) * 26, (random() - 0.5) * 22);
+      const silo = makeSilo(0.9 + random() * 0.3);
+      silo.position.copy(siloPosition);
+      group.add(silo);
+    }
+    if (random() > 0.55) {
+      const windmillPosition = place((random() - 0.5) * 26, (random() - 0.5) * 22);
+      const windmill = makeWindmill();
+      windmill.position.copy(windmillPosition);
+      windmill.rotation.y = random() * Math.PI * 2;
+      group.add(windmill);
+    }
     return group;
   }
 
@@ -546,8 +629,9 @@ export class EndlessWorld {
     const sample = this.sample(s);
     const right = new THREE.Vector3(-sample.tangent.z, 0, sample.tangent.x).normalize();
     const side = random() > 0.5 ? 1 : -1;
-    const position = sample.position.clone().addScaledVector(right, side * (16 + random() * 20));
-    position.y += terrainWave(position.x, position.z) + 0.25;
+    const lateral = side * (16 + random() * 20);
+    const position = sample.position.clone().addScaledVector(right, lateral);
+    position.y = groundHeight(s, lateral) + 0.25;
 
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(28, 28), this.mistMaterial);
     mesh.rotation.x = -Math.PI / 2;
@@ -562,8 +646,13 @@ export class EndlessWorld {
     const center = roadPoint(start + FAR_LENGTH / 2);
     const random = mulberry32(index * 7349 + 17);
 
-    this.addSplitRidge(group, start + FAR_LENGTH / 2 + 200, 340, 95, 0xcdb48f, 0xb0966c, random(), 30, 56);
-    this.addSplitRidge(group, start + FAR_LENGTH / 2 + 90, 250, 62, 0x6f8156, 0x455636, random(), 16, 32);
+    // Three layers of ridge, each taller and further back than the last. The
+    // furthest layer's own height range is wide enough that some peaks along
+    // it tower well above the rest — a skyline with real high points, not a
+    // uniformly wiggly wall.
+    this.addSplitRidge(group, start + FAR_LENGTH / 2 + 320, 460, 150, 0xe6e2d6, 0xa89678, random(), 95, 210);
+    this.addSplitRidge(group, start + FAR_LENGTH / 2 + 200, 340, 95, 0xcdb48f, 0xb0966c, random(), 48, 92);
+    this.addSplitRidge(group, start + FAR_LENGTH / 2 + 90, 250, 62, 0x6f8156, 0x455636, random(), 20, 40);
 
     const hillCount = this.quality === "high" ? 3 : 2;
     for (let i = 0; i < hillCount; i += 1) {
@@ -772,4 +861,76 @@ function makeBush(scale: number, variant: number): THREE.Mesh {
   const bush = new THREE.Mesh(geometry, material);
   bush.position.y = 0.35 * scale;
   return bush;
+}
+
+function makeHayBale(radius: number): THREE.Mesh {
+  const bale = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, radius * 1.35, 10), HAY_MATERIAL);
+  bale.rotation.z = Math.PI / 2;
+  bale.position.y = radius;
+  return bale;
+}
+
+function makeLog(length: number, variant: number): THREE.Group {
+  const log = new THREE.Group();
+  const radius = 0.16 + variant * 0.08;
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius * 0.85, length, 7), LOG_BARK_MATERIAL);
+  trunk.rotation.z = Math.PI / 2;
+  trunk.position.y = radius;
+  const cut = new THREE.Mesh(new THREE.CircleGeometry(radius, 7), LOG_CUT_MATERIAL);
+  cut.rotation.y = Math.PI / 2;
+  cut.position.set(-length / 2, radius, 0);
+  log.add(trunk, cut);
+  return log;
+}
+
+/** A small low-poly house: a box body under a pyramid roof, warm-toned like the rest of the roadside. */
+function makeHouse(random: () => number): THREE.Group {
+  const house = new THREE.Group();
+  const width = 2.2 + random() * 1.4;
+  const depth = 2 + random() * 1.2;
+  const height = 1.7 + random() * 0.8;
+  const wall = new THREE.Mesh(
+    new THREE.BoxGeometry(width, height, depth),
+    BUILDING_WALL_MATERIALS[Math.floor(random() * BUILDING_WALL_MATERIALS.length)],
+  );
+  wall.position.y = height / 2;
+  const roof = new THREE.Mesh(
+    new THREE.ConeGeometry(Math.max(width, depth) * 0.78, height * 0.55, 4),
+    BUILDING_ROOF_MATERIALS[Math.floor(random() * BUILDING_ROOF_MATERIALS.length)],
+  );
+  roof.rotation.y = Math.PI / 4;
+  roof.position.y = height + (height * 0.55) / 2;
+  house.add(wall, roof);
+  house.scale.setScalar(0.85 + random() * 0.4);
+  return house;
+}
+
+/** A grain silo: a squat cylinder capped by a shallow dome. */
+function makeSilo(scale: number): THREE.Group {
+  const silo = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.9 * scale, 0.9 * scale, 3.4 * scale, 12), SILO_MATERIAL);
+  body.position.y = 1.7 * scale;
+  const cap = new THREE.Mesh(new THREE.SphereGeometry(0.9 * scale, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2), SILO_CAP_MATERIAL);
+  cap.position.y = 3.4 * scale;
+  silo.add(body, cap);
+  return silo;
+}
+
+/** A simple windmill accent: a tapered pole under a four-blade head. Static — no draft rig needed to read as scenery. */
+function makeWindmill(): THREE.Group {
+  const windmill = new THREE.Group();
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.09, 3.6, 6), LOG_BARK_MATERIAL);
+  pole.position.y = 1.8;
+  const hub = new THREE.Group();
+  hub.position.y = 3.5;
+  for (let i = 0; i < 4; i += 1) {
+    const blade = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.1, 0.32), WINDMILL_MATERIAL);
+    blade.position.y = 0.55;
+    const arm = new THREE.Group();
+    arm.rotation.z = (i * Math.PI) / 2;
+    arm.add(blade);
+    hub.add(arm);
+  }
+  windmill.add(pole, hub);
+  return windmill;
 }

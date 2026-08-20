@@ -6,7 +6,17 @@ const SHOULDER_BASE = new THREE.Color(0xb08a56);
 const SHOULDER_VARY = new THREE.Color(0x9a7748);
 
 export function roadPoint(distance: number): THREE.Vector3 {
-  const x = Math.sin(distance * 0.0085) * 16 + Math.sin(distance * 0.0027 + 1.1) * 30;
+  // Two slow terms carry the long-range meander; a third, mid-frequency term
+  // layers in tighter, more frequent bends so the road reads as actual
+  // cornering rather than a gentle drift. Its own amplitude breathes over a
+  // very long period (`cornerIntensity`), so some stretches curve hard while
+  // others relax back toward the lazy S-curve — variety rather than a
+  // uniformly wiggly line.
+  const cornerIntensity = 0.55 + Math.sin(distance * 0.00095) * 0.45;
+  const x =
+    Math.sin(distance * 0.0085) * 16 +
+    Math.sin(distance * 0.0027 + 1.1) * 30 +
+    Math.sin(distance * 0.0141 + 2.3) * 24 * cornerIntensity;
   const y = Math.sin(distance * 0.0052 + 0.4) * 3.2 + Math.sin(distance * 0.00165) * 7;
   return new THREE.Vector3(x, y, -distance);
 }

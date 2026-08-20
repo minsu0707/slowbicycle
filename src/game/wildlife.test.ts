@@ -3,12 +3,14 @@ import * as THREE from "three";
 import { mulberry32 } from "./procedural";
 import type { EndlessWorld } from "./world";
 import {
+  AMBIENT_FLOCK_TARGET,
   ANIMAL_CAPS,
   ENCOUNTER_CAPS,
   FIRST_SPAWN_RANGE,
   SPAWN_AHEAD_RANGE,
   SPAWN_INTERVAL_RANGE,
   WildlifeDirector,
+  ambientFlockMotionParams,
   birdFlightPose,
   clamp01,
   computeFacingYaw,
@@ -16,6 +18,7 @@ import {
   firstSpawnDelay,
   flockMotionParams,
   groundMotionParams,
+  groundProgress,
   isFarEnough,
   nextSpawnDelay,
   pickSide,
@@ -214,6 +217,56 @@ describe("flockMotionParams", () => {
       expect(params.altitude).toBeGreaterThanOrEqual(14);
       expect(params.altitude).toBeLessThanOrEqual(30);
     }
+  });
+});
+
+describe("ambientFlockMotionParams", () => {
+  it("keeps ambient flocks close and low, unlike the wide, high encounter sweep", () => {
+    const random = mulberry32(5);
+    for (let i = 0; i < 50; i += 1) {
+      const params = ambientFlockMotionParams(random);
+      expect(Math.abs(params.lateralStart)).toBeLessThanOrEqual(20);
+      expect(params.altitude).toBeGreaterThanOrEqual(6);
+      expect(params.altitude).toBeLessThanOrEqual(12);
+    }
+  });
+});
+
+describe("groundProgress", () => {
+  it("holds still through the initial pause, then eases exactly like smoothEase on the remainder", () => {
+    expect(groundProgress(0)).toBe(0);
+    expect(groundProgress(0.05)).toBe(0);
+    expect(groundProgress(1)).toBeCloseTo(1, 8);
+    expect(groundProgress(0.56)).toBeCloseTo(smoothEase((0.56 - 0.12) / 0.88), 8);
+  });
+});
+
+describe("WildlifeDirector ambient flocks", () => {
+  it("keeps birds flying overhead immediately, independent of the encounter spawn window", () => {
+    const director = new WildlifeDirector(fakeWorld(), mulberry32(13));
+    director.update(0.016, 0, 0);
+    expect(director.ambientGroup.children.length).toBe(AMBIENT_FLOCK_TARGET.high);
+    // The rare-encounter group is untouched by ambient flocks and keeps its own cap.
+    expect(director.group.children.length).toBeLessThanOrEqual(ENCOUNTER_CAPS.high);
+  });
+
+  it("keeps replacing ambient flocks as they age out, over a long ride", () => {
+    const director = new WildlifeDirector(fakeWorld(), mulberry32(29));
+    let distance = 0;
+    for (let i = 0; i < 3000; i += 1) {
+      distance += 0.3;
+      director.update(0.05, distance, 0);
+    }
+    expect(director.ambientGroup.children.length).toBe(AMBIENT_FLOCK_TARGET.high);
+  });
+
+  it("clears ambient flocks on reset and refills them on the next update", () => {
+    const director = new WildlifeDirector(fakeWorld(), mulberry32(41));
+    director.update(0.016, 0, 0);
+    director.reset();
+    expect(director.ambientGroup.children.length).toBe(0);
+    director.update(0.016, 0, 0);
+    expect(director.ambientGroup.children.length).toBe(AMBIENT_FLOCK_TARGET.high);
   });
 });
 

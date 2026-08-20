@@ -17,7 +17,7 @@ import type { EndlessWorld } from "./world";
 
 export type SpeciesId = "bird" | "deer" | "fox" | "rabbit";
 export type GroundSpeciesId = "deer" | "fox" | "rabbit";
-type Quality = "low" | "high";
+export type Quality = "low" | "high";
 
 export const SPAWN_INTERVAL_RANGE = { min: 10, max: 26 } as const;
 export const FIRST_SPAWN_RANGE = { min: 5, max: 10 } as const;
@@ -28,6 +28,15 @@ export const GROUND_MIN_GAP = 14;
 export const FLOCK_MIN_GAP = 25;
 export const ENCOUNTER_CAPS: Record<Quality, number> = { low: 2, high: 3 };
 export const ANIMAL_CAPS: Record<Quality, number> = { low: 7, high: 14 };
+/**
+ * How many flocks always ride overhead, independent of the rare "encounter"
+ * system above. These are the difference between "a flock crosses the sky
+ * once a minute" and "there are birds up there" — always at least one in
+ * view, close and low enough to actually notice while riding.
+ */
+export const AMBIENT_FLOCK_TARGET: Record<Quality, number> = { low: 1, high: 2 };
+/** Below this fraction of animals are asleep; ambient flocks thin out but never fully vanish. */
+const AMBIENT_NIGHT_CUTOFF = 0.82;
 
 // ---------------------------------------------------------------------------
 // Pure scheduling / species helpers — no THREE, no side effects, easy to test.
@@ -169,6 +178,38 @@ export function flockMotionParams(random: () => number): FlockMotionParams {
     alongDrift: randomInRange(random, 30, 70),
     lifespan: lifespanFor("bird", random),
   };
+}
+
+/**
+ * Ambient flocks trade the encounter flock's wide, distant sweep for a path
+ * that stays close and low over the road — near enough that a small
+ * silhouette against the sky is still easy to pick out while riding.
+ */
+export function ambientFlockMotionParams(random: () => number): FlockMotionParams {
+  const side = pickSide(random);
+  const lateralStart = side * randomInRange(random, 7, 20);
+  const lateralEnd = -lateralStart * randomInRange(random, 0.6, 1.05);
+  return {
+    lateralStart,
+    lateralEnd,
+    altitude: randomInRange(random, 6, 12),
+    alongDrift: randomInRange(random, 45, 90),
+    lifespan: randomInRange(random, 16, 26),
+  };
+}
+
+/**
+ * A ground animal's progress needs a beat of stillness before it moves — real
+ * wildlife notices an approaching rider and freezes for a moment before it
+ * darts off, rather than gliding away the instant it appears. `smoothEase`
+ * alone starts moving immediately; this holds at 0 through an initial pause,
+ * then eases through the rest exactly as `smoothEase` would on its own.
+ */
+export function groundProgress(t: number): number {
+  const clamped = clamp01(t);
+  const pause = 0.12;
+  if (clamped <= pause) return 0;
+  return smoothEase((clamped - pause) / (1 - pause));
 }
 
 /** True when `candidate` keeps at least `minGap` from every other active encounter's current position — the collision-avoidance check between concurrent encounters. */
@@ -453,7 +494,9 @@ interface BirdBuild {
 
 function buildBird(random: () => number): BirdBuild {
   const root = new THREE.Group();
-  root.scale.setScalar(0.7 + random() * 0.6);
+  // Sized up from an early pass that read as near-invisible specks against
+  // the sky — still a small silhouette, just one a rider can actually spot.
+  root.scale.setScalar(1.15 + random() * 0.85);
   const body = new THREE.Mesh(BIRD_BODY_GEOMETRY, BIRD_MATERIAL);
   body.scale.set(0.045, 0.055, 0.16);
   root.add(body);
@@ -495,6 +538,7 @@ interface GroundAnimalInstance {
   alongJitter: number;
   lateralWobble: number;
   phaseOffset: number;
+  startDelay: number;
 }
 
 interface BirdInstance {
@@ -548,8 +592,15 @@ export class WildlifeDirector {
   private spawnTimer: number;
   private readonly scratch = new THREE.Vector3();
 
+  // Ambient flocks live in their own group, kept separate from `group` (the
+  // rare "encounter" system) so the two never compete for the same caps and
+  // existing encounter bookkeeping doesn't have to account for them.
+  readonly ambientGroup = new THREE.Group();
+  private ambientFlocks: FlockEncounter[] = [];
+
   constructor(world: EndlessWorld, random: () => number = Math.random) {
     this.group.name = "wildlife";
+    this.ambientGroup.name = "wildlife-ambient";
     this.world = world;
     this.random = random;
     this.spawnTimer = firstSpawnDelay(this.random);
@@ -562,6 +613,8 @@ export class WildlifeDirector {
   reset(): void {
     for (const encounter of this.encounters) this.group.remove(encounter.group);
     this.encounters = [];
+    for (const flock of this.ambientFlocks) this.ambientGroup.remove(flock.group);
+    this.ambientFlocks = [];
     this.spawnTimer = firstSpawnDelay(this.random);
   }
 
@@ -572,6 +625,29 @@ export class WildlifeDirector {
       this.spawnTimer = spawned ? nextSpawnDelay(this.random) : RETRY_DELAY_SECONDS;
     }
     this.stepEncounters(dt, riderDistance);
+    this.stepAmbientFlocks(dt, riderDistance, clamp01(nightAmount));
+  }
+
+  private stepAmbientFlocks(dt: number, riderDistance: number, nightAmount: number): void {
+    for (let i = this.ambientFlocks.length - 1; i >= 0; i -= 1) {
+      const flock = this.ambientFlocks[i];
+      flock.age += dt;
+      this.stepFlock(flock, dt);
+      const behind = riderDistance - flock.currentDistance;
+      if (flock.age >= flock.lifespan || behind > BEHIND_DESPAWN_DISTANCE) {
+        this.ambientGroup.remove(flock.group);
+        this.ambientFlocks.splice(i, 1);
+      }
+    }
+
+    const target = AMBIENT_FLOCK_TARGET[this.quality];
+    const wanted = nightAmount > AMBIENT_NIGHT_CUTOFF ? Math.max(0, target - 1) : target;
+    while (this.ambientFlocks.length < wanted) {
+      const distance = riderDistance + randomInRange(this.random, 18, 45);
+      const flock = this.createFlock(distance, flockSize(this.random, this.quality), true);
+      this.ambientFlocks.push(flock);
+      this.ambientGroup.add(flock.group);
+    }
   }
 
   private totalAnimals(): number {
@@ -608,8 +684,8 @@ export class WildlifeDirector {
     return true;
   }
 
-  private createFlock(distance: number, count: number): FlockEncounter {
-    const params = flockMotionParams(this.random);
+  private createFlock(distance: number, count: number, ambient = false): FlockEncounter {
+    const params = ambient ? ambientFlockMotionParams(this.random) : flockMotionParams(this.random);
     const group = new THREE.Group();
     group.name = "wildlife-flock";
     const birds: BirdInstance[] = [];
@@ -693,6 +769,9 @@ export class WildlifeDirector {
         alongJitter,
         lateralWobble: 0.3 + this.random() * 0.4,
         phaseOffset: this.random() * Math.PI * 2,
+        // Staggered so a group doesn't notice the rider and bolt in
+        // perfect lockstep — each animal gets its own beat before it moves.
+        startDelay: count > 1 ? this.random() * 0.7 : 0,
       });
     }
     return {
@@ -757,12 +836,17 @@ export class WildlifeDirector {
   }
 
   private stepGround(encounter: GroundEncounter, dt: number): void {
+    // `currentDistance` (used for despawn/spacing bookkeeping) tracks the
+    // encounter's own unstaggered progress; each animal below eases along
+    // its own slightly delayed timeline instead, so a group doesn't move as
+    // one rigid block.
     const f = smoothEase(encounter.age / encounter.lifespan);
     encounter.currentDistance = encounter.spawnDistance + encounter.alongDrift * f;
-    const laneLateral = lerpNum(encounter.lateralStart, encounter.lateralEnd, f);
 
     for (const animal of encounter.animals) {
-      const along = encounter.currentDistance + animal.alongJitter;
+      const animalF = groundProgress((encounter.age - animal.startDelay) / encounter.lifespan);
+      const along = encounter.spawnDistance + encounter.alongDrift * animalF + animal.alongJitter;
+      const laneLateral = lerpNum(encounter.lateralStart, encounter.lateralEnd, animalF);
       const lateral = laneLateral + Math.sin(encounter.age * 1.4 + animal.phaseOffset) * animal.lateralWobble;
       this.world.groundPosition(along, lateral, this.scratch);
 

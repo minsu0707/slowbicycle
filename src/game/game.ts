@@ -66,6 +66,7 @@ export class SlowBicycleGame {
     this.world = new EndlessWorld(this.scene);
     this.wildlife = new WildlifeDirector(this.world);
     this.scene.add(this.wildlife.group);
+    this.scene.add(this.wildlife.ambientGroup);
     this.scene.add(this.bicycle.group);
     this.setupLights();
     this.bindUI();
