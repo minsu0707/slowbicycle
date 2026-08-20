@@ -130,7 +130,12 @@ const SILO_MATERIAL = new THREE.MeshStandardMaterial({ color: 0xb9c0c2, roughnes
 const SILO_CAP_MATERIAL = new THREE.MeshStandardMaterial({ color: 0x8f9a9c, roughness: 0.5, metalness: 0.2 });
 const WINDMILL_MATERIAL = new THREE.MeshStandardMaterial({ color: 0xefe9dc, roughness: 0.7 });
 const LAMP_POLE_MATERIAL = new THREE.MeshStandardMaterial({ color: 0x2c2620, roughness: 0.8, metalness: 0.2 });
-const LAMP_GLOW_MATERIAL = new THREE.MeshBasicMaterial({ color: 0xffdca0, fog: false });
+// A dull, unlit-glass tone by day; `setAtmosphere` lerps it toward the bright
+// night color as starOpacity rises, so the bulb itself visibly "switches on"
+// rather than looking identical around the clock.
+const LAMP_GLOW_DAY = new THREE.Color(0x877562);
+const LAMP_GLOW_NIGHT = new THREE.Color(0xffe6ad);
+const LAMP_GLOW_MATERIAL = new THREE.MeshBasicMaterial({ color: LAMP_GLOW_DAY, fog: false });
 const STEM_MATERIAL = new THREE.MeshStandardMaterial({ color: 0x5c7a4a, roughness: 1 });
 const BLOOM_MATERIALS = [
   new THREE.MeshStandardMaterial({ color: 0xf4c94f, roughness: 0.9, flatShading: true }),
@@ -173,6 +178,33 @@ function getMistTexture(): THREE.Texture {
   return mistTexture;
 }
 
+let glowTexture: THREE.Texture | null = null;
+
+/**
+ * A soft, bright-centered radial glow — the halo behind a lamppost's bulb
+ * (and, via `Bicycle`, the bike's own lamps), additively blended so it reads
+ * as light rather than a flat sprite. Exported so `bike.ts` doesn't need its
+ * own copy of the same canvas-gradient code.
+ */
+export function getGlowTexture(): THREE.Texture {
+  if (glowTexture) return glowTexture;
+  const size = 64;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    gradient.addColorStop(0, "rgba(255,255,255,1)");
+    gradient.addColorStop(0.35, "rgba(255,255,255,0.55)");
+    gradient.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, size, size);
+  }
+  glowTexture = new THREE.CanvasTexture(canvas);
+  return glowTexture;
+}
+
 export class EndlessWorld {
   readonly group = new THREE.Group();
   private chunks = new Map<number, THREE.Group>();
@@ -198,6 +230,18 @@ export class EndlessWorld {
     color: 0xf5ead6,
     transparent: true,
     depthWrite: false,
+  });
+  // Additive halo behind every lamppost bulb — `setAtmosphere` fades its
+  // opacity in with the night, which is what actually reads as "the light
+  // turned on" rather than the bulb's own color shift alone.
+  private lampHaloMaterial = new THREE.SpriteMaterial({
+    map: getGlowTexture(),
+    color: 0xffdca0,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    fog: false,
+    blending: THREE.AdditiveBlending,
   });
   private skyMaterial = new THREE.MeshBasicMaterial({
     vertexColors: true,
@@ -227,8 +271,11 @@ export class EndlessWorld {
 
   setAtmosphere(skyTint: number, starOpacity: number): void {
     this.skyMaterial.color.setHex(skyTint);
-    this.starMaterial.opacity = THREE.MathUtils.clamp(starOpacity, 0, 1);
-    this.starMaterial.visible = this.starMaterial.opacity > 0.01;
+    const night = THREE.MathUtils.clamp(starOpacity, 0, 1);
+    this.starMaterial.opacity = night;
+    this.starMaterial.visible = night > 0.01;
+    LAMP_GLOW_MATERIAL.color.copy(LAMP_GLOW_DAY).lerp(LAMP_GLOW_NIGHT, night);
+    this.lampHaloMaterial.opacity = night * 0.85;
   }
 
   setQuality(quality: "low" | "high"): void {
@@ -637,8 +684,11 @@ export class EndlessWorld {
       pole.position.set(0, 1.3, 0);
       const glow = new THREE.Mesh(new THREE.IcosahedronGeometry(0.12, 0), LAMP_GLOW_MATERIAL);
       glow.position.set(0, 2.65, 0);
+      const halo = new THREE.Sprite(this.lampHaloMaterial);
+      halo.scale.setScalar(1.5);
+      halo.position.set(0, 2.65, 0);
       const lamp = new THREE.Group();
-      lamp.add(pole, glow);
+      lamp.add(pole, glow, halo);
       lamp.position.copy(position);
       group.add(lamp);
     }

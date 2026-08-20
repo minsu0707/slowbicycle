@@ -1,9 +1,13 @@
 import * as THREE from "three";
+import { getGlowTexture } from "./world";
 
 const INK = new THREE.MeshStandardMaterial({ color: 0x18221f, roughness: 0.48, metalness: 0.35 });
 const FRAME = new THREE.MeshStandardMaterial({ color: 0xc55d3f, roughness: 0.42, metalness: 0.28 });
 const METAL = new THREE.MeshStandardMaterial({ color: 0xb8bcb8, roughness: 0.3, metalness: 0.82 });
-// Off by day, so day-riding pays no cost for a lamp nobody sees lit.
+// Off by day, so day-riding pays no cost for a lamp nobody sees lit. The
+// bulb alone is tiny and easy to miss at riding distance — the additive
+// halo sprites (built per-instance below, since they need `getGlowTexture`)
+// are what actually sells "the light turned on".
 const HEADLAMP_GLOW = new THREE.MeshBasicMaterial({ color: 0xfff2c4, fog: false, transparent: true, opacity: 0 });
 const TAILLAMP_GLOW = new THREE.MeshBasicMaterial({ color: 0xff2a2a, fog: false, transparent: true, opacity: 0 });
 const MODEL_SCALE = 0.86;
@@ -20,9 +24,27 @@ export class Bicycle {
   private pedals = new THREE.Group();
   private crankAngle = 0;
   private crankTarget = 0;
-  private headlampBulb = new THREE.Mesh(new THREE.IcosahedronGeometry(0.045, 0), HEADLAMP_GLOW);
-  private taillampBulb = new THREE.Mesh(new THREE.IcosahedronGeometry(0.038, 0), TAILLAMP_GLOW);
-  private headlampBeam = new THREE.SpotLight(0xfff2c4, 0, 22, Math.PI / 7, 0.55, 1.4);
+  private headlampBulb = new THREE.Mesh(new THREE.IcosahedronGeometry(0.05, 0), HEADLAMP_GLOW);
+  private taillampBulb = new THREE.Mesh(new THREE.IcosahedronGeometry(0.042, 0), TAILLAMP_GLOW);
+  private headlampBeam = new THREE.SpotLight(0xfff2c4, 0, 26, Math.PI / 6.5, 0.6, 1.2);
+  private headlampHaloMaterial = new THREE.SpriteMaterial({
+    map: getGlowTexture(),
+    color: 0xfff2c4,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    fog: false,
+    blending: THREE.AdditiveBlending,
+  });
+  private taillampHaloMaterial = new THREE.SpriteMaterial({
+    map: getGlowTexture(),
+    color: 0xff3a3a,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    fog: false,
+    blending: THREE.AdditiveBlending,
+  });
 
   constructor() {
     this.group.name = "bicycle";
@@ -35,9 +57,12 @@ export class Bicycle {
     const clamped = THREE.MathUtils.clamp(amount, 0, 1);
     HEADLAMP_GLOW.opacity = clamped;
     TAILLAMP_GLOW.opacity = clamped;
-    this.headlampBulb.visible = this.taillampBulb.visible = clamped > 0.02;
-    this.headlampBeam.intensity = clamped * 5;
-    this.headlampBeam.visible = clamped > 0.02;
+    this.headlampHaloMaterial.opacity = clamped * 0.9;
+    this.taillampHaloMaterial.opacity = clamped * 0.9;
+    const lit = clamped > 0.02;
+    this.headlampBulb.visible = this.taillampBulb.visible = lit;
+    this.headlampBeam.intensity = clamped * 9;
+    this.headlampBeam.visible = lit;
   }
 
   update(speed: number, lean: number, steering: number, dt: number, pedaling: boolean, pedalStroke: boolean): void {
@@ -192,7 +217,10 @@ export class Bicycle {
    */
   private addLamps(): void {
     this.headlampBulb.position.set(0, 1.49, -0.99);
-    this.group.add(this.headlampBulb);
+    const headlampHalo = new THREE.Sprite(this.headlampHaloMaterial);
+    headlampHalo.scale.setScalar(0.32);
+    headlampHalo.position.set(0, 1.49, -0.99);
+    this.group.add(this.headlampBulb, headlampHalo);
 
     this.headlampBeam.position.set(0, 1.49, -0.99);
     const beamTarget = new THREE.Object3D();
@@ -202,7 +230,10 @@ export class Bicycle {
     this.group.add(this.headlampBeam, beamTarget);
 
     this.taillampBulb.position.set(0, 1.44, 0.42);
-    this.group.add(this.taillampBulb);
+    const taillampHalo = new THREE.Sprite(this.taillampHaloMaterial);
+    taillampHalo.scale.setScalar(0.26);
+    taillampHalo.position.set(0, 1.44, 0.42);
+    this.group.add(this.taillampBulb, taillampHalo);
   }
 }
 
